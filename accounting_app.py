@@ -68,10 +68,9 @@ class AccountingApp:
         for cid, name, phone, email in cur.fetchall():
             self.cust_tree.insert('', 'end', values=(cid, name, phone if phone else '', email if email else ''))
     
-   def add_customer(self):
-    # Debug: confirm the button click registered
-    messagebox.showinfo("Debug", "Add Customer clicked! The pop-up will now open.")
-    self._customer_dialog("Add Customer")
+    def add_customer(self):
+        messagebox.showinfo("Debug", "Add Customer clicked! The pop-up will now open.")
+        self._customer_dialog("Add Customer")
     
     def edit_customer(self):
         selected = self.cust_tree.selection()
@@ -96,77 +95,73 @@ class AccountingApp:
             self.refresh_customer_list()
             self.refresh_transaction_list()
     
-def _customer_dialog(self, title, cid=None, name='', phone='', email=''):
-    dlg = tk.Toplevel(self.root)
-    dlg.title(title)
-    dlg.geometry("350x250")
-    dlg.resizable(False, False)
-    
-    # Center the pop-up on the main window
-    dlg.update_idletasks()
-    main_x = self.root.winfo_rootx()
-    main_y = self.root.winfo_rooty()
-    main_w = self.root.winfo_width()
-    main_h = self.root.winfo_height()
-    popup_w = 350
-    popup_h = 250
-    x = main_x + (main_w // 2) - (popup_w // 2)
-    y = main_y + (main_h // 2) - (popup_h // 2)
-    dlg.geometry(f"{popup_w}x{popup_h}+{x}+{y}")
-    
-    # Make the pop-up grab focus and stay on top
-    dlg.grab_set()
-    dlg.lift()
-    dlg.attributes('-topmost', True)
-    
-    frame = ttk.Frame(dlg, padding=20)
-    frame.pack(fill='both', expand=True)
-    
-    ttk.Label(frame, text="Name:").grid(row=0, column=0, sticky='w', pady=5)
-    name_var = tk.StringVar(value=name)
-    ttk.Entry(frame, textvariable=name_var, width=25).grid(row=0, column=1, padx=5, pady=5)
-    
-    ttk.Label(frame, text="Phone:").grid(row=1, column=0, sticky='w', pady=5)
-    phone_var = tk.StringVar(value=phone)
-    ttk.Entry(frame, textvariable=phone_var, width=25).grid(row=1, column=1, padx=5, pady=5)
-    
-    ttk.Label(frame, text="Email:").grid(row=2, column=0, sticky='w', pady=5)
-    email_var = tk.StringVar(value=email)
-    ttk.Entry(frame, textvariable=email_var, width=25).grid(row=2, column=1, padx=5, pady=5)
-    
-    def save():
-        n = name_var.get().strip()
-        if not n:
-            messagebox.showerror("Error", "Name is required.", parent=dlg)
-            return
-        if cid:  # update
-            self.conn.execute("UPDATE customers SET name=?, phone=?, email=? WHERE id=?",
-                              (n, phone_var.get(), email_var.get(), cid))
-        else:   # insert
-            self.conn.execute("INSERT INTO customers (name, phone, email) VALUES (?,?,?)",
-                              (n, phone_var.get(), email_var.get()))
-        self.conn.commit()
-        dlg.destroy()
-        self.refresh_customer_list()
-        self.refresh_transaction_list()
-        messagebox.showinfo("Success", "Customer saved.", parent=self.root)
-    
-    # Very visible Save button
-    save_btn = ttk.Button(frame, text="💾 SAVE CUSTOMER", command=save)
-    save_btn.grid(row=3, column=0, columnspan=2, pady=20)
-    save_btn.configure(style='Accent.TButton')  # may need a custom style for color, but it will work
-    
-    # If you want a bigger font, we can apply a style:
-    style = ttk.Style()
-    style.configure('Accent.TButton', font=('TkDefaultFont', 12, 'bold'))
-    save_btn.configure(style='Accent.TButton')
+    def _customer_dialog(self, title, cid=None, name='', phone='', email=''):
+        dlg = tk.Toplevel(self.root)
+        dlg.title(title)
+        dlg.geometry("350x250")
+        dlg.resizable(False, False)
+        
+        # Center the pop-up on the main window
+        dlg.update_idletasks()
+        main_x = self.root.winfo_rootx()
+        main_y = self.root.winfo_rooty()
+        main_w = self.root.winfo_width()
+        main_h = self.root.winfo_height()
+        popup_w = 350
+        popup_h = 250
+        x = main_x + (main_w // 2) - (popup_w // 2)
+        y = main_y + (main_h // 2) - (popup_h // 2)
+        dlg.geometry(f"{popup_w}x{popup_h}+{x}+{y}")
+        
+        dlg.grab_set()
+        dlg.lift()
+        dlg.attributes('-topmost', True)
+        
+        frame = ttk.Frame(dlg, padding=20)
+        frame.pack(fill='both', expand=True)
+        
+        ttk.Label(frame, text="Name:").grid(row=0, column=0, sticky='w', pady=5)
+        name_var = tk.StringVar(value=name)
+        ttk.Entry(frame, textvariable=name_var, width=25).grid(row=0, column=1, padx=5, pady=5)
+        
+        ttk.Label(frame, text="Phone:").grid(row=1, column=0, sticky='w', pady=5)
+        phone_var = tk.StringVar(value=phone)
+        ttk.Entry(frame, textvariable=phone_var, width=25).grid(row=1, column=1, padx=5, pady=5)
+        
+        ttk.Label(frame, text="Email:").grid(row=2, column=0, sticky='w', pady=5)
+        email_var = tk.StringVar(value=email)
+        ttk.Entry(frame, textvariable=email_var, width=25).grid(row=2, column=1, padx=5, pady=5)
+        
+        def save():
+            n = name_var.get().strip()
+            if not n:
+                messagebox.showerror("Error", "Name is required.", parent=dlg)
+                return
+            if cid:  # update
+                self.conn.execute("UPDATE customers SET name=?, phone=?, email=? WHERE id=?",
+                                  (n, phone_var.get(), email_var.get(), cid))
+            else:   # insert
+                self.conn.execute("INSERT INTO customers (name, phone, email) VALUES (?,?,?)",
+                                  (n, phone_var.get(), email_var.get()))
+            self.conn.commit()
+            dlg.destroy()
+            self.refresh_customer_list()
+            self.refresh_transaction_list()
+            messagebox.showinfo("Success", "Customer saved.", parent=self.root)
+        
+        # A big, bold, unmistakable Save button
+        btn = ttk.Button(frame, text="💾 SAVE CUSTOMER", command=save)
+        btn.grid(row=3, column=0, columnspan=2, pady=20)
+        # Use a large font without relying on custom styles that might not exist
+        style = ttk.Style()
+        style.configure('Big.TButton', font=('TkDefaultFont', 12, 'bold'))
+        btn.configure(style='Big.TButton')
     
     # ---------------- Transactions Tab ----------------
     def build_transactions_tab(self):
         self.trans_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.trans_frame, text="Transactions")
         
-        # Customer selection
         top = ttk.Frame(self.trans_frame)
         top.pack(fill='x', padx=5, pady=5)
         ttk.Label(top, text="Customer:").pack(side='left')
@@ -174,7 +169,6 @@ def _customer_dialog(self, title, cid=None, name='', phone='', email=''):
         self.cust_combo.pack(side='left', padx=5)
         self.cust_combo.bind('<<ComboboxSelected>>', lambda e: self.refresh_transaction_list())
         
-        # Entry fields
         entry_frame = ttk.Frame(self.trans_frame)
         entry_frame.pack(fill='x', padx=5, pady=5)
         
@@ -197,7 +191,6 @@ def _customer_dialog(self, title, cid=None, name='', phone='', email=''):
         
         ttk.Button(entry_frame, text="Record Transaction", command=self.record_transaction).grid(row=2, column=0, columnspan=5, pady=10)
         
-        # Ledger view
         cols = ('Date', 'Description', 'Credit', 'Debit', 'Balance')
         self.ledger_tree = ttk.Treeview(self.trans_frame, columns=cols, show='headings', height=15)
         self.ledger_tree.heading('Date', text='Date')
@@ -239,7 +232,7 @@ def _customer_dialog(self, title, cid=None, name='', phone='', email=''):
         for date, desc, ttype, amount in rows:
             credit = amount if ttype == 'credit' else 0.0
             debit = amount if ttype == 'debit' else 0.0
-            balance += credit - debit  # adjust convention if needed
+            balance += credit - debit
             self.ledger_tree.insert('', 'end', values=(
                 date, desc or "", f"{credit:,.2f}" if credit else "",
                 f"{debit:,.2f}" if debit else "", f"{balance:,.2f}"
@@ -358,7 +351,6 @@ def _customer_dialog(self, title, cid=None, name='', phone='', email=''):
         elements.append(table)
         doc.build(elements)
         
-        # Open PDF
         try:
             if platform.system() == 'Windows':
                 os.startfile(filename)
