@@ -68,8 +68,10 @@ class AccountingApp:
         for cid, name, phone, email in cur.fetchall():
             self.cust_tree.insert('', 'end', values=(cid, name, phone if phone else '', email if email else ''))
     
-    def add_customer(self):
-        self._customer_dialog("Add Customer")
+   def add_customer(self):
+    # Debug: confirm the button click registered
+    messagebox.showinfo("Debug", "Add Customer clicked! The pop-up will now open.")
+    self._customer_dialog("Add Customer")
     
     def edit_customer(self):
         selected = self.cust_tree.selection()
@@ -94,42 +96,70 @@ class AccountingApp:
             self.refresh_customer_list()
             self.refresh_transaction_list()
     
-    def _customer_dialog(self, title, cid=None, name='', phone='', email=''):
-        dlg = tk.Toplevel(self.root)
-        dlg.title(title)
-        dlg.geometry("300x200")
-        dlg.resizable(False, False)
-        
-        ttk.Label(dlg, text="Name:").pack(pady=5)
-        name_var = tk.StringVar(value=name)
-        ttk.Entry(dlg, textvariable=name_var).pack(pady=5, padx=20, fill='x')
-        
-        ttk.Label(dlg, text="Phone:").pack(pady=5)
-        phone_var = tk.StringVar(value=phone)
-        ttk.Entry(dlg, textvariable=phone_var).pack(pady=5, padx=20, fill='x')
-        
-        ttk.Label(dlg, text="Email:").pack(pady=5)
-        email_var = tk.StringVar(value=email)
-        ttk.Entry(dlg, textvariable=email_var).pack(pady=5, padx=20, fill='x')
-        
-        def save():
-            n = name_var.get().strip()
-            if not n:
-                messagebox.showerror("Error", "Name is required.")
-                return
-            if cid:  # update
-                self.conn.execute("UPDATE customers SET name=?, phone=?, email=? WHERE id=?",
-                                  (n, phone_var.get(), email_var.get(), cid))
-            else:   # insert
-                self.conn.execute("INSERT INTO customers (name, phone, email) VALUES (?,?,?)",
-                                  (n, phone_var.get(), email_var.get()))
-            self.conn.commit()
-            dlg.destroy()
-            self.refresh_customer_list()
-            self.refresh_transaction_list()
-        
-        ttk.Button(dlg, text="Save", command=save).pack(pady=10)
-        dlg.grab_set()
+def _customer_dialog(self, title, cid=None, name='', phone='', email=''):
+    dlg = tk.Toplevel(self.root)
+    dlg.title(title)
+    dlg.geometry("350x250")
+    dlg.resizable(False, False)
+    
+    # Center the pop-up on the main window
+    dlg.update_idletasks()
+    main_x = self.root.winfo_rootx()
+    main_y = self.root.winfo_rooty()
+    main_w = self.root.winfo_width()
+    main_h = self.root.winfo_height()
+    popup_w = 350
+    popup_h = 250
+    x = main_x + (main_w // 2) - (popup_w // 2)
+    y = main_y + (main_h // 2) - (popup_h // 2)
+    dlg.geometry(f"{popup_w}x{popup_h}+{x}+{y}")
+    
+    # Make the pop-up grab focus and stay on top
+    dlg.grab_set()
+    dlg.lift()
+    dlg.attributes('-topmost', True)
+    
+    frame = ttk.Frame(dlg, padding=20)
+    frame.pack(fill='both', expand=True)
+    
+    ttk.Label(frame, text="Name:").grid(row=0, column=0, sticky='w', pady=5)
+    name_var = tk.StringVar(value=name)
+    ttk.Entry(frame, textvariable=name_var, width=25).grid(row=0, column=1, padx=5, pady=5)
+    
+    ttk.Label(frame, text="Phone:").grid(row=1, column=0, sticky='w', pady=5)
+    phone_var = tk.StringVar(value=phone)
+    ttk.Entry(frame, textvariable=phone_var, width=25).grid(row=1, column=1, padx=5, pady=5)
+    
+    ttk.Label(frame, text="Email:").grid(row=2, column=0, sticky='w', pady=5)
+    email_var = tk.StringVar(value=email)
+    ttk.Entry(frame, textvariable=email_var, width=25).grid(row=2, column=1, padx=5, pady=5)
+    
+    def save():
+        n = name_var.get().strip()
+        if not n:
+            messagebox.showerror("Error", "Name is required.", parent=dlg)
+            return
+        if cid:  # update
+            self.conn.execute("UPDATE customers SET name=?, phone=?, email=? WHERE id=?",
+                              (n, phone_var.get(), email_var.get(), cid))
+        else:   # insert
+            self.conn.execute("INSERT INTO customers (name, phone, email) VALUES (?,?,?)",
+                              (n, phone_var.get(), email_var.get()))
+        self.conn.commit()
+        dlg.destroy()
+        self.refresh_customer_list()
+        self.refresh_transaction_list()
+        messagebox.showinfo("Success", "Customer saved.", parent=self.root)
+    
+    # Very visible Save button
+    save_btn = ttk.Button(frame, text="💾 SAVE CUSTOMER", command=save)
+    save_btn.grid(row=3, column=0, columnspan=2, pady=20)
+    save_btn.configure(style='Accent.TButton')  # may need a custom style for color, but it will work
+    
+    # If you want a bigger font, we can apply a style:
+    style = ttk.Style()
+    style.configure('Accent.TButton', font=('TkDefaultFont', 12, 'bold'))
+    save_btn.configure(style='Accent.TButton')
     
     # ---------------- Transactions Tab ----------------
     def build_transactions_tab(self):
