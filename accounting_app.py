@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import platform
 import subprocess
@@ -25,8 +25,8 @@ ACCENT         = "#1ABC9C"
 class AccountingApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Customer Credit/Debit Manager")
-        self.root.geometry("1000x750")
+        self.root.title("Multi‑Account Credit/Debit Manager")
+        self.root.geometry("1050x750")
         self.root.configure(bg=BG_MAIN)
         
         self.conn = sqlite3.connect(DB_NAME)
@@ -67,19 +67,15 @@ class AccountingApp:
         self.style.map('Treeview', background=[('selected', ACCENT)], foreground=[('selected', TEXT_LIGHT)])
         self.style.configure('Status.TLabel', background=HEADER_BG, foreground=TEXT_LIGHT,
                              font=('Segoe UI', 9), padding=5)
-        # Additional style for the totals row
-        self.style.configure('Total.Treeview', background='#D5E8D4', foreground=TEXT_DARK,
-                             font=('Segoe UI', 9, 'bold'))
         
         self.notebook = ttk.Notebook(root)
         self.notebook.pack(fill='both', expand=True, padx=5, pady=(5,0))
         
-        self.build_customers_tab()
+        self.build_accounts_tab()
         self.build_transactions_tab()
-        self.build_overview_tab()        # NEW OVERVIEW TAB
+        self.build_overview_tab()
         self.build_report_tab()
         
-        # Bind tab change to refresh overview when switching to it
         self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
         
         self.status_var = tk.StringVar()
@@ -106,114 +102,114 @@ class AccountingApp:
     
     def create_tables(self):
         cur = self.conn.cursor()
-        cur.execute('''CREATE TABLE IF NOT EXISTS customers (
+        cur.execute('''CREATE TABLE IF NOT EXISTS accounts (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         name TEXT NOT NULL,
-                        phone TEXT,
-                        email TEXT,
+                        type TEXT DEFAULT 'Bank',  -- Bank, Cash, etc.
                         bank_name TEXT,
                         account_name TEXT,
                         account_number TEXT)''')
         cur.execute('''CREATE TABLE IF NOT EXISTS transactions (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        customer_id INTEGER NOT NULL,
+                        account_id INTEGER NOT NULL,
                         type TEXT CHECK(type IN ('credit','debit')) NOT NULL,
                         amount REAL NOT NULL,
                         description TEXT,
                         date TEXT NOT NULL,
-                        FOREIGN KEY (customer_id) REFERENCES customers(id))''')
+                        FOREIGN KEY (account_id) REFERENCES accounts(id))''')
         self.conn.commit()
     
     def migrate_tables(self):
-        """Add bank columns if missing (for existing databases)."""
+        """Add type column if missing (for existing databases)."""
         cur = self.conn.cursor()
-        cur.execute("PRAGMA table_info(customers)")
+        cur.execute("PRAGMA table_info(accounts)")
         existing_cols = [col[1] for col in cur.fetchall()]
-        for col, col_def in [('bank_name', 'TEXT'), ('account_name', 'TEXT'), ('account_number', 'TEXT')]:
-            if col not in existing_cols:
-                cur.execute(f"ALTER TABLE customers ADD COLUMN {col} {col_def}")
-        self.conn.commit()
+        if 'type' not in existing_cols:
+            cur.execute("ALTER TABLE accounts ADD COLUMN type TEXT DEFAULT 'Bank'")
+            self.conn.commit()
     
     def on_tab_changed(self, event):
-        """Refresh overview when the Overview tab is selected."""
         selected_tab = self.notebook.tab(self.notebook.select(), "text")
         if selected_tab == "Overview":
             self.refresh_overview()
+        elif selected_tab == "Transactions":
+            self.refresh_transaction_list()
     
-    # ---------------- Customers Tab ----------------
-    def build_customers_tab(self):
-        self.cust_frame = ttk.Frame(self.notebook)
-        self.notebook.add(self.cust_frame, text="Customers")
+    # ---------------- Accounts Tab ----------------
+    def build_accounts_tab(self):
+        self.acc_frame = ttk.Frame(self.notebook)
+        self.notebook.add(self.acc_frame, text="Accounts")
         
-        cols = ('ID', 'Name', 'Phone', 'Email', 'Bank Name', 'Account Name', 'Account No')
-        self.cust_tree = ttk.Treeview(self.cust_frame, columns=cols, show='headings', height=15)
-        widths = {'ID':40, 'Name':120, 'Phone':90, 'Email':130, 'Bank Name':100, 'Account Name':120, 'Account No':100}
+        cols = ('ID', 'Name', 'Type', 'Bank Name', 'Account Name', 'Account No')
+        self.acc_tree = ttk.Treeview(self.acc_frame, columns=cols, show='headings', height=15)
+        widths = {'ID':40, 'Name':120, 'Type':80, 'Bank Name':130, 'Account Name':150, 'Account No':120}
         for col in cols:
-            self.cust_tree.heading(col, text=col)
-            self.cust_tree.column(col, width=widths.get(col, 100), anchor='center')
-        self.cust_tree.pack(fill='both', expand=True, padx=10, pady=10)
+            self.acc_tree.heading(col, text=col)
+            self.acc_tree.column(col, width=widths.get(col, 100), anchor='center')
+        self.acc_tree.pack(fill='both', expand=True, padx=10, pady=10)
         
-        btn_frame = ttk.Frame(self.cust_frame)
+        btn_frame = ttk.Frame(self.acc_frame)
         btn_frame.pack(pady=(0,10))
-        ttk.Button(btn_frame, text="➕ Add Customer", style='Primary.TButton', command=self.add_customer).pack(side='left', padx=5)
-        ttk.Button(btn_frame, text="✏️ Edit Customer", style='Warn.TButton', command=self.edit_customer).pack(side='left', padx=5)
-        ttk.Button(btn_frame, text="🗑️ Delete Customer", style='Danger.TButton', command=self.delete_customer).pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="➕ Add Account", style='Primary.TButton', command=self.add_account).pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="✏️ Edit Account", style='Warn.TButton', command=self.edit_account).pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="🗑️ Delete Account", style='Danger.TButton', command=self.delete_account).pack(side='left', padx=5)
         
-        self.refresh_customer_list()
+        self.refresh_account_list()
     
-    def refresh_customer_list(self):
-        for row in self.cust_tree.get_children():
-            self.cust_tree.delete(row)
+    def refresh_account_list(self):
+        for row in self.acc_tree.get_children():
+            self.acc_tree.delete(row)
         cur = self.conn.cursor()
-        cur.execute("SELECT id, name, phone, email, bank_name, account_name, account_number FROM customers ORDER BY name")
+        cur.execute("SELECT id, name, type, bank_name, account_name, account_number FROM accounts ORDER BY name")
         for row in cur.fetchall():
-            self.cust_tree.insert('', 'end', values=(
-                row[0], row[1], row[2] or '', row[3] or '', row[4] or '', row[5] or '', row[6] or ''
+            self.acc_tree.insert('', 'end', values=(
+                row[0], row[1], row[2] or '', row[3] or '', row[4] or '', row[5] or ''
             ))
     
     def get_bank_list(self):
+        """Return distinct non-empty bank names from accounts where type is Bank."""
         cur = self.conn.cursor()
-        cur.execute("SELECT DISTINCT bank_name FROM customers WHERE bank_name IS NOT NULL AND bank_name != '' ORDER BY bank_name")
+        cur.execute("SELECT DISTINCT bank_name FROM accounts WHERE type='Bank' AND bank_name IS NOT NULL AND bank_name != '' ORDER BY bank_name")
         return [row[0] for row in cur.fetchall()]
     
-    def add_customer(self):
+    def add_account(self):
         if not self.check_admin():
             return
-        self._customer_dialog("Add Customer")
+        self._account_dialog("Add Account")
     
-    def edit_customer(self):
+    def edit_account(self):
         if not self.check_admin():
             return
-        selected = self.cust_tree.selection()
+        selected = self.acc_tree.selection()
         if not selected:
-            messagebox.showwarning("Warning", "Select a customer to edit.")
+            messagebox.showwarning("Warning", "Select an account to edit.")
             return
-        cid = self.cust_tree.item(selected[0])['values'][0]
+        aid = self.acc_tree.item(selected[0])['values'][0]
         cur = self.conn.cursor()
-        cur.execute("SELECT name, phone, email, bank_name, account_name, account_number FROM customers WHERE id=?", (cid,))
+        cur.execute("SELECT name, type, bank_name, account_name, account_number FROM accounts WHERE id=?", (aid,))
         row = cur.fetchone()
-        self._customer_dialog("Edit Customer", cid, row[0], row[1], row[2], row[3], row[4], row[5])
+        self._account_dialog("Edit Account", aid, row[0], row[1], row[2], row[3], row[4])
     
-    def delete_customer(self):
+    def delete_account(self):
         if not self.check_admin():
             return
-        selected = self.cust_tree.selection()
+        selected = self.acc_tree.selection()
         if not selected:
             return
-        if messagebox.askyesno("Confirm", "Delete selected customer and all their transactions?"):
-            cid = self.cust_tree.item(selected[0])['values'][0]
-            self.conn.execute("DELETE FROM transactions WHERE customer_id=?", (cid,))
-            self.conn.execute("DELETE FROM customers WHERE id=?", (cid,))
+        if messagebox.askyesno("Confirm", "Delete selected account and all its transactions?"):
+            aid = self.acc_tree.item(selected[0])['values'][0]
+            self.conn.execute("DELETE FROM transactions WHERE account_id=?", (aid,))
+            self.conn.execute("DELETE FROM accounts WHERE id=?", (aid,))
             self.conn.commit()
-            self.refresh_customer_list()
+            self.refresh_account_list()
             self.refresh_transaction_list()
-            self.populate_customer_combo()
+            self.populate_account_combo()
             self.populate_report_combo()
             self.refresh_overview()
-            self.set_status("Customer deleted.")
+            self.set_status("Account deleted.")
     
-    def _customer_dialog(self, title, cid=None, name='', phone='', email='',
-                         bank_name='', account_name='', account_number=''):
+    def _account_dialog(self, title, aid=None, name='', atype='Bank',
+                        bank_name='', account_name='', account_number=''):
         dlg = tk.Toplevel(self.root)
         dlg.title(title)
         dlg.geometry("400x400")
@@ -238,74 +234,102 @@ class AccountingApp:
         frame = ttk.Frame(dlg, padding=20)
         frame.pack(fill='both', expand=True)
         
-        ttk.Label(frame, text="Name:").grid(row=0, column=0, sticky='w', pady=5)
+        ttk.Label(frame, text="Account Name:").grid(row=0, column=0, sticky='w', pady=5)
         name_var = tk.StringVar(value=name)
         ttk.Entry(frame, textvariable=name_var, width=30, font=('Segoe UI', 10)).grid(row=0, column=1, padx=5, pady=5)
         
-        ttk.Label(frame, text="Phone:").grid(row=1, column=0, sticky='w', pady=5)
-        phone_var = tk.StringVar(value=phone)
-        ttk.Entry(frame, textvariable=phone_var, width=30, font=('Segoe UI', 10)).grid(row=1, column=1, padx=5, pady=5)
+        ttk.Label(frame, text="Type:").grid(row=1, column=0, sticky='w', pady=5)
+        type_var = tk.StringVar(value=atype)
+        type_combo = ttk.Combobox(frame, textvariable=type_var, values=['Bank', 'Cash', 'Other'], state='readonly', width=27, font=('Segoe UI', 10))
+        type_combo.grid(row=1, column=1, padx=5, pady=5)
+        type_combo.bind('<<ComboboxSelected>>', lambda e: self.toggle_bank_fields(bank_frame, type_var.get()))
         
-        ttk.Label(frame, text="Email:").grid(row=2, column=0, sticky='w', pady=5)
-        email_var = tk.StringVar(value=email)
-        ttk.Entry(frame, textvariable=email_var, width=30, font=('Segoe UI', 10)).grid(row=2, column=1, padx=5, pady=5)
-        
-        ttk.Label(frame, text="Bank Name:").grid(row=3, column=0, sticky='w', pady=5)
+        bank_frame = ttk.Frame(frame)
+        bank_frame.grid(row=2, column=0, columnspan=2, pady=10, sticky='ew')
+        # Bank-specific fields
+        ttk.Label(bank_frame, text="Bank Name:").grid(row=0, column=0, sticky='w', pady=5)
         bank_var = tk.StringVar(value=bank_name)
-        bank_combo = ttk.Combobox(frame, textvariable=bank_var, width=27, font=('Segoe UI', 10))
+        bank_combo = ttk.Combobox(bank_frame, textvariable=bank_var, width=27, font=('Segoe UI', 10))
         bank_combo['values'] = self.get_bank_list()
-        bank_combo.grid(row=3, column=1, padx=5, pady=5)
+        bank_combo.grid(row=0, column=1, padx=5, pady=5)
         bank_combo.configure(state='normal')
         
-        ttk.Label(frame, text="Account Name:").grid(row=4, column=0, sticky='w', pady=5)
+        ttk.Label(bank_frame, text="Account Name:").grid(row=1, column=0, sticky='w', pady=5)
         acct_name_var = tk.StringVar(value=account_name)
-        ttk.Entry(frame, textvariable=acct_name_var, width=30, font=('Segoe UI', 10)).grid(row=4, column=1, padx=5, pady=5)
+        ttk.Entry(bank_frame, textvariable=acct_name_var, width=30, font=('Segoe UI', 10)).grid(row=1, column=1, padx=5, pady=5)
         
-        ttk.Label(frame, text="Account Number:").grid(row=5, column=0, sticky='w', pady=5)
+        ttk.Label(bank_frame, text="Account Number:").grid(row=2, column=0, sticky='w', pady=5)
         acct_num_var = tk.StringVar(value=account_number)
-        ttk.Entry(frame, textvariable=acct_num_var, width=30, font=('Segoe UI', 10)).grid(row=5, column=1, padx=5, pady=5)
+        ttk.Entry(bank_frame, textvariable=acct_num_var, width=30, font=('Segoe UI', 10)).grid(row=2, column=1, padx=5, pady=5)
+        
+        self.toggle_bank_fields(bank_frame, atype)
         
         def save():
             n = name_var.get().strip()
             if not n:
-                messagebox.showerror("Error", "Name is required.", parent=dlg)
+                messagebox.showerror("Error", "Account Name is required.", parent=dlg)
                 return
-            b_name = bank_var.get().strip()
-            a_name = acct_name_var.get().strip()
-            a_num = acct_num_var.get().strip()
+            t = type_var.get()
+            b_name = bank_var.get().strip() if t == 'Bank' else ''
+            a_name = acct_name_var.get().strip() if t == 'Bank' else ''
+            a_num = acct_num_var.get().strip() if t == 'Bank' else ''
             
-            if cid:
-                self.conn.execute("UPDATE customers SET name=?, phone=?, email=?, bank_name=?, account_name=?, account_number=? WHERE id=?",
-                                  (n, phone_var.get(), email_var.get(), b_name, a_name, a_num, cid))
+            if aid:
+                self.conn.execute("UPDATE accounts SET name=?, type=?, bank_name=?, account_name=?, account_number=? WHERE id=?",
+                                  (n, t, b_name, a_name, a_num, aid))
             else:
-                self.conn.execute("INSERT INTO customers (name, phone, email, bank_name, account_name, account_number) VALUES (?,?,?,?,?,?)",
-                                  (n, phone_var.get(), email_var.get(), b_name, a_name, a_num))
+                self.conn.execute("INSERT INTO accounts (name, type, bank_name, account_name, account_number) VALUES (?,?,?,?,?)",
+                                  (n, t, b_name, a_name, a_num))
             self.conn.commit()
             dlg.destroy()
-            self.refresh_customer_list()
-            self.populate_customer_combo()
+            self.refresh_account_list()
+            self.populate_account_combo()
             self.populate_report_combo()
             self.refresh_transaction_list()
             self.refresh_overview()
-            self.set_status("Customer saved.")
+            self.set_status("Account saved.")
         
-        save_btn = ttk.Button(frame, text="💾 SAVE CUSTOMER", style='Success.TButton', command=save)
-        save_btn.grid(row=6, column=0, columnspan=2, pady=20)
+        save_btn = ttk.Button(frame, text="💾 SAVE ACCOUNT", style='Success.TButton', command=save)
+        save_btn.grid(row=3, column=0, columnspan=2, pady=20)
         self.style.configure('Success.TButton', font=('Segoe UI', 12, 'bold'))
         save_btn.configure(style='Success.TButton')
+    
+    def toggle_bank_fields(self, bank_frame, atype):
+        for widget in bank_frame.winfo_children():
+            widget.configure(state='normal' if atype == 'Bank' else 'disabled')
     
     # ---------------- Transactions Tab ----------------
     def build_transactions_tab(self):
         self.trans_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.trans_frame, text="Transactions")
         
+        # Account selection and date filter
         top = ttk.Frame(self.trans_frame)
         top.pack(fill='x', padx=10, pady=10)
-        ttk.Label(top, text="Customer:").pack(side='left')
-        self.cust_combo = ttk.Combobox(top, state='readonly', font=('Segoe UI', 10))
-        self.cust_combo.pack(side='left', padx=5)
-        self.cust_combo.bind('<<ComboboxSelected>>', lambda e: self.refresh_transaction_list())
+        ttk.Label(top, text="Account:").pack(side='left')
+        self.acc_combo = ttk.Combobox(top, state='readonly', font=('Segoe UI', 10))
+        self.acc_combo.pack(side='left', padx=5)
+        self.acc_combo.bind('<<ComboboxSelected>>', lambda e: self.refresh_transaction_list())
         
+        ttk.Label(top, text="Period:").pack(side='left', padx=(20,5))
+        self.period_var = tk.StringVar(value='All')
+        period_combo = ttk.Combobox(top, textvariable=self.period_var, state='readonly',
+                                    values=['All', 'Today', 'This Week', 'This Month', 'This Year', 'Custom'],
+                                    width=12, font=('Segoe UI', 10))
+        period_combo.pack(side='left', padx=5)
+        period_combo.bind('<<ComboboxSelected>>', lambda e: self.on_period_change())
+        
+        ttk.Label(top, text="From:").pack(side='left', padx=(20,2))
+        self.from_var = tk.StringVar()
+        self.from_entry = ttk.Entry(top, textvariable=self.from_var, width=10, font=('Segoe UI', 10), state='disabled')
+        self.from_entry.pack(side='left')
+        ttk.Label(top, text="To:").pack(side='left', padx=2)
+        self.to_var = tk.StringVar()
+        self.to_entry = ttk.Entry(top, textvariable=self.to_var, width=10, font=('Segoe UI', 10), state='disabled')
+        self.to_entry.pack(side='left')
+        ttk.Button(top, text="Apply", command=self.refresh_transaction_list).pack(side='left', padx=5)
+        
+        # Transaction entry form
         entry_frame = ttk.Frame(self.trans_frame)
         entry_frame.pack(fill='x', padx=10, pady=5)
         
@@ -328,6 +352,7 @@ class AccountingApp:
         
         ttk.Button(entry_frame, text="📝 Record Transaction", style='Primary.TButton', command=self.record_transaction).grid(row=2, column=0, columnspan=5, pady=10)
         
+        # Ledger view
         cols = ('ID', 'Date', 'Description', 'Credit', 'Debit', 'Balance')
         self.ledger_tree = ttk.Treeview(self.trans_frame, columns=cols, show='headings', height=15)
         self.ledger_tree.heading('ID', text='ID')
@@ -346,22 +371,58 @@ class AccountingApp:
         
         ttk.Button(self.trans_frame, text="🗑️ Delete Selected Transaction", style='Danger.TButton', command=self.delete_transaction).pack(pady=5)
         
-        self.populate_customer_combo()
+        self.populate_account_combo()
     
-    def populate_customer_combo(self):
+    def on_period_change(self):
+        period = self.period_var.get()
+        if period == 'Custom':
+            self.from_entry.configure(state='normal')
+            self.to_entry.configure(state='normal')
+        else:
+            self.from_entry.configure(state='disabled')
+            self.to_entry.configure(state='disabled')
+            self.from_var.set('')
+            self.to_var.set('')
+    
+    def get_date_range(self):
+        """Return (from_date, to_date) based on selected period."""
+        period = self.period_var.get()
+        today = datetime.today()
+        if period == 'All':
+            return None, None
+        elif period == 'Today':
+            return today.strftime('%Y-%m-%d'), today.strftime('%Y-%m-%d')
+        elif period == 'This Week':
+            start = today - timedelta(days=today.weekday())
+            return start.strftime('%Y-%m-%d'), today.strftime('%Y-%m-%d')
+        elif period == 'This Month':
+            start = today.replace(day=1)
+            return start.strftime('%Y-%m-%d'), today.strftime('%Y-%m-%d')
+        elif period == 'This Year':
+            start = today.replace(month=1, day=1)
+            return start.strftime('%Y-%m-%d'), today.strftime('%Y-%m-%d')
+        elif period == 'Custom':
+            from_date = self.from_var.get().strip()
+            to_date = self.to_var.get().strip()
+            if from_date and to_date:
+                return from_date, to_date
+            return None, None
+        return None, None
+    
+    def populate_account_combo(self):
         cur = self.conn.cursor()
-        cur.execute("SELECT id, name FROM customers ORDER BY name")
-        customers = cur.fetchall()
-        self.cust_combo['values'] = [f"{cid} - {name}" for cid, name in customers]
-        if customers:
-            self.cust_combo.current(0)
+        cur.execute("SELECT id, name FROM accounts ORDER BY name")
+        accounts = cur.fetchall()
+        self.acc_combo['values'] = [f"{aid} - {name}" for aid, name in accounts]
+        if accounts:
+            self.acc_combo.current(0)
             self.refresh_transaction_list()
         else:
             for row in self.ledger_tree.get_children():
                 self.ledger_tree.delete(row)
     
-    def get_selected_customer_id(self):
-        sel = self.cust_combo.get()
+    def get_selected_account_id(self):
+        sel = self.acc_combo.get()
         if sel:
             return int(sel.split(' - ')[0])
         return None
@@ -369,11 +430,18 @@ class AccountingApp:
     def refresh_transaction_list(self):
         for row in self.ledger_tree.get_children():
             self.ledger_tree.delete(row)
-        cid = self.get_selected_customer_id()
-        if not cid:
+        aid = self.get_selected_account_id()
+        if not aid:
             return
+        from_date, to_date = self.get_date_range()
         cur = self.conn.cursor()
-        cur.execute("SELECT id, date, description, type, amount FROM transactions WHERE customer_id=? ORDER BY date, id", (cid,))
+        query = "SELECT id, date, description, type, amount FROM transactions WHERE account_id=? "
+        params = [aid]
+        if from_date and to_date:
+            query += " AND date >= ? AND date <= ?"
+            params.extend([from_date, to_date])
+        query += " ORDER BY date, id"
+        cur.execute(query, params)
         rows = cur.fetchall()
         balance = 0.0
         for tid, date, desc, ttype, amount in rows:
@@ -386,9 +454,9 @@ class AccountingApp:
             ))
     
     def record_transaction(self):
-        cid = self.get_selected_customer_id()
-        if not cid:
-            messagebox.showerror("Error", "Please select a customer.")
+        aid = self.get_selected_account_id()
+        if not aid:
+            messagebox.showerror("Error", "Please select an account.")
             return
         date = self.date_var.get().strip()
         try:
@@ -406,8 +474,8 @@ class AccountingApp:
             return
         desc = self.desc_var.get().strip()
         
-        self.conn.execute("INSERT INTO transactions (customer_id, type, amount, description, date) VALUES (?,?,?,?,?)",
-                          (cid, ttype, amount, desc, date))
+        self.conn.execute("INSERT INTO transactions (account_id, type, amount, description, date) VALUES (?,?,?,?,?)",
+                          (aid, ttype, amount, desc, date))
         self.conn.commit()
         self.amount_var.set('')
         self.desc_var.set('')
@@ -431,56 +499,48 @@ class AccountingApp:
             self.refresh_overview()
             self.set_status("Transaction deleted.")
     
-    # ---------------- Overview Tab (NEW) ----------------
+    # ---------------- Overview Tab ----------------
     def build_overview_tab(self):
         self.overview_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.overview_frame, text="Overview")
         
-        # Title
         title_lbl = ttk.Label(self.overview_frame, text="Accounts Overview", font=('Segoe UI', 14, 'bold'))
         title_lbl.pack(pady=10)
         
-        # Treeview for customer totals
-        cols = ('Customer', 'Total Credit', 'Total Debit', 'Net Balance')
+        cols = ('Account', 'Type', 'Total Credit', 'Total Debit', 'Net Balance')
         self.overview_tree = ttk.Treeview(self.overview_frame, columns=cols, show='headings', height=15)
-        self.overview_tree.heading('Customer', text='Customer')
+        self.overview_tree.heading('Account', text='Account')
+        self.overview_tree.heading('Type', text='Type')
         self.overview_tree.heading('Total Credit', text='Total Credit')
         self.overview_tree.heading('Total Debit', text='Total Debit')
         self.overview_tree.heading('Net Balance', text='Net Balance')
-        self.overview_tree.column('Customer', width=250, anchor='w')
-        self.overview_tree.column('Total Credit', width=150, anchor='center')
-        self.overview_tree.column('Total Debit', width=150, anchor='center')
-        self.overview_tree.column('Net Balance', width=150, anchor='center')
+        self.overview_tree.column('Account', width=200, anchor='w')
+        self.overview_tree.column('Type', width=80, anchor='center')
+        self.overview_tree.column('Total Credit', width=120, anchor='center')
+        self.overview_tree.column('Total Debit', width=120, anchor='center')
+        self.overview_tree.column('Net Balance', width=120, anchor='center')
         self.overview_tree.pack(fill='both', expand=True, padx=10, pady=5)
         
-        # Refresh button (optional, but auto-refresh also works)
         btn_frame = ttk.Frame(self.overview_frame)
         btn_frame.pack(pady=(5,10))
         ttk.Button(btn_frame, text="🔄 Refresh Overview", style='Primary.TButton', command=self.refresh_overview).pack()
-        
-        # Initial load
-        self.refresh_overview()
     
     def refresh_overview(self):
-        """Update the overview tree with per-customer credit/debit totals."""
         for row in self.overview_tree.get_children():
             self.overview_tree.delete(row)
         
         cur = self.conn.cursor()
-        # Get all customers
-        cur.execute("SELECT id, name FROM customers ORDER BY name")
-        customers = cur.fetchall()
+        cur.execute("SELECT id, name, type FROM accounts ORDER BY name")
+        accounts = cur.fetchall()
         
         total_credit_all = 0.0
         total_debit_all = 0.0
         total_net_all = 0.0
         
-        for cid, cname in customers:
-            # Sum credits
-            cur.execute("SELECT COALESCE(SUM(amount),0) FROM transactions WHERE customer_id=? AND type='credit'", (cid,))
+        for aid, aname, atype in accounts:
+            cur.execute("SELECT COALESCE(SUM(amount),0) FROM transactions WHERE account_id=? AND type='credit'", (aid,))
             credit = cur.fetchone()[0]
-            # Sum debits
-            cur.execute("SELECT COALESCE(SUM(amount),0) FROM transactions WHERE customer_id=? AND type='debit'", (cid,))
+            cur.execute("SELECT COALESCE(SUM(amount),0) FROM transactions WHERE account_id=? AND type='debit'", (aid,))
             debit = cur.fetchone()[0]
             net = credit - debit
             
@@ -489,19 +549,12 @@ class AccountingApp:
             total_net_all += net
             
             self.overview_tree.insert('', 'end', values=(
-                cname,
-                f"{credit:,.2f}",
-                f"{debit:,.2f}",
-                f"{net:,.2f}"
+                aname, atype or 'Bank', f"{credit:,.2f}", f"{debit:,.2f}", f"{net:,.2f}"
             ))
         
-        # Grand totals row with special styling
-        if customers:
+        if accounts:
             self.overview_tree.insert('', 'end', values=(
-                "GRAND TOTALS",
-                f"{total_credit_all:,.2f}",
-                f"{total_debit_all:,.2f}",
-                f"{total_net_all:,.2f}"
+                "GRAND TOTALS", "", f"{total_credit_all:,.2f}", f"{total_debit_all:,.2f}", f"{total_net_all:,.2f}"
             ), tags=('totals',))
             self.overview_tree.tag_configure('totals', background='#D5E8D4', font=('Segoe UI', 9, 'bold'))
     
@@ -512,42 +565,86 @@ class AccountingApp:
         
         top = ttk.Frame(self.report_frame)
         top.pack(fill='x', padx=10, pady=10)
-        ttk.Label(top, text="Customer:").pack(side='left')
-        self.report_cust_combo = ttk.Combobox(top, state='readonly', font=('Segoe UI', 10), width=30)
-        self.report_cust_combo.pack(side='left', padx=5)
+        ttk.Label(top, text="Account:").pack(side='left')
+        self.report_acc_combo = ttk.Combobox(top, state='readonly', font=('Segoe UI', 10), width=30)
+        self.report_acc_combo.pack(side='left', padx=5)
         
         date_frame = ttk.Frame(self.report_frame)
         date_frame.pack(fill='x', padx=10, pady=5)
-        ttk.Label(date_frame, text="From (YYYY-MM-DD):").grid(row=0, column=0, sticky='w')
-        self.report_from_var = tk.StringVar()
-        ttk.Entry(date_frame, textvariable=self.report_from_var, width=12, font=('Segoe UI', 10)).grid(row=0, column=1, padx=5)
-        ttk.Label(date_frame, text="To (YYYY-MM-DD):").grid(row=0, column=2, sticky='w', padx=(20,0))
-        self.report_to_var = tk.StringVar()
-        ttk.Entry(date_frame, textvariable=self.report_to_var, width=12, font=('Segoe UI', 10)).grid(row=0, column=3, padx=5)
-        ttk.Label(date_frame, text="(leave empty for all dates)").grid(row=0, column=4, padx=10)
+        ttk.Label(date_frame, text="Period:").grid(row=0, column=0, sticky='w')
+        self.report_period_var = tk.StringVar(value='All')
+        rperiod_combo = ttk.Combobox(date_frame, textvariable=self.report_period_var, state='readonly',
+                                     values=['All', 'Today', 'This Week', 'This Month', 'This Year', 'Custom'],
+                                     width=12, font=('Segoe UI', 10))
+        rperiod_combo.grid(row=0, column=1, padx=5)
+        rperiod_combo.bind('<<ComboboxSelected>>', lambda e: self.on_report_period_change())
+        
+        ttk.Label(date_frame, text="From:").grid(row=0, column=2, padx=(20,2))
+        self.r_from_var = tk.StringVar()
+        self.r_from_entry = ttk.Entry(date_frame, textvariable=self.r_from_var, width=10, font=('Segoe UI', 10), state='disabled')
+        self.r_from_entry.grid(row=0, column=3)
+        ttk.Label(date_frame, text="To:").grid(row=0, column=4, padx=2)
+        self.r_to_var = tk.StringVar()
+        self.r_to_entry = ttk.Entry(date_frame, textvariable=self.r_to_var, width=10, font=('Segoe UI', 10), state='disabled')
+        self.r_to_entry.grid(row=0, column=5)
+        ttk.Label(date_frame, text="(leave empty for all dates)").grid(row=0, column=6, padx=10)
         
         ttk.Button(top, text="📄 Generate PDF Statement", style='Success.TButton', command=self.generate_pdf).pack(side='left', padx=20)
         
         self.populate_report_combo()
     
+    def on_report_period_change(self):
+        period = self.report_period_var.get()
+        if period == 'Custom':
+            self.r_from_entry.configure(state='normal')
+            self.r_to_entry.configure(state='normal')
+        else:
+            self.r_from_entry.configure(state='disabled')
+            self.r_to_entry.configure(state='disabled')
+            self.r_from_var.set('')
+            self.r_to_var.set('')
+    
+    def get_report_date_range(self):
+        period = self.report_period_var.get()
+        today = datetime.today()
+        if period == 'All':
+            return None, None
+        elif period == 'Today':
+            return today.strftime('%Y-%m-%d'), today.strftime('%Y-%m-%d')
+        elif period == 'This Week':
+            start = today - timedelta(days=today.weekday())
+            return start.strftime('%Y-%m-%d'), today.strftime('%Y-%m-%d')
+        elif period == 'This Month':
+            start = today.replace(day=1)
+            return start.strftime('%Y-%m-%d'), today.strftime('%Y-%m-%d')
+        elif period == 'This Year':
+            start = today.replace(month=1, day=1)
+            return start.strftime('%Y-%m-%d'), today.strftime('%Y-%m-%d')
+        elif period == 'Custom':
+            from_date = self.r_from_var.get().strip()
+            to_date = self.r_to_var.get().strip()
+            if from_date and to_date:
+                return from_date, to_date
+            return None, None
+        return None, None
+    
     def populate_report_combo(self):
         cur = self.conn.cursor()
-        cur.execute("SELECT id, name FROM customers ORDER BY name")
-        customers = cur.fetchall()
-        self.report_cust_combo['values'] = [f"{cid} - {name}" for cid, name in customers]
-        if customers:
-            self.report_cust_combo.current(0)
+        cur.execute("SELECT id, name FROM accounts ORDER BY name")
+        accounts = cur.fetchall()
+        self.report_acc_combo['values'] = [f"{aid} - {name}" for aid, name in accounts]
+        if accounts:
+            self.report_acc_combo.current(0)
     
     def generate_pdf(self):
-        sel = self.report_cust_combo.get()
+        sel = self.report_acc_combo.get()
         if not sel:
-            messagebox.showwarning("Warning", "Select a customer.")
+            messagebox.showwarning("Warning", "Select an account.")
             return
-        cid = int(sel.split(' - ')[0])
-        cname = sel.split(' - ', 1)[1]
+        aid = int(sel.split(' - ')[0])
+        aname = sel.split(' - ', 1)[1]
         
-        from_date = self.report_from_var.get().strip()
-        to_date = self.report_to_var.get().strip()
+        from_date, to_date = self.get_report_date_range()
         for d in [from_date, to_date]:
             if d:
                 try:
@@ -566,25 +663,28 @@ class AccountingApp:
             return
         
         cur = self.conn.cursor()
-        cur.execute("SELECT bank_name, account_name, account_number FROM customers WHERE id=?", (cid,))
-        bank_info = cur.fetchone()
+        cur.execute("SELECT type, bank_name, account_name, account_number FROM accounts WHERE id=?", (aid,))
+        acct_info = cur.fetchone()
+        atype, bname, acct_name, acct_num = acct_info
         
-        filename = f"statement_{cname.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        filename = f"statement_{aname.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
         doc = SimpleDocTemplate(filename, pagesize=A4)
         styles = getSampleStyleSheet()
         elements = []
         
-        elements.append(Paragraph(f"Customer Statement – {cname}", styles['Title']))
-        if bank_info and (bank_info[0] or bank_info[1] or bank_info[2]):
-            bank_text = f"Bank: {bank_info[0] or 'N/A'} | Account Name: {bank_info[1] or 'N/A'} | Account No: {bank_info[2] or 'N/A'}"
+        elements.append(Paragraph(f"Account Statement – {aname}", styles['Title']))
+        if atype == 'Bank':
+            bank_text = f"Bank: {bname or 'N/A'} | Account: {acct_name or 'N/A'} | No: {acct_num or 'N/A'}"
             elements.append(Paragraph(bank_text, styles['Normal']))
+        else:
+            elements.append(Paragraph(f"Type: {atype}", styles['Normal']))
         if from_date or to_date:
             period = f"Period: {from_date or 'start'} to {to_date or 'end'}"
             elements.append(Paragraph(period, styles['Normal']))
         elements.append(Spacer(1, 12))
         
-        query = "SELECT date, description, type, amount FROM transactions WHERE customer_id=?"
-        params = [cid]
+        query = "SELECT date, description, type, amount FROM transactions WHERE account_id=?"
+        params = [aid]
         if from_date:
             query += " AND date >= ?"
             params.append(from_date)
