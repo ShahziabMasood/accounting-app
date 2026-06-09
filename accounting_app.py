@@ -9,16 +9,75 @@ import subprocess
 DB_NAME = "accounting.db"
 ADMIN_PASSWORD = "admin"   # Change this to your desired password
 
+# -------------------- Color Palette --------------------
+BG_MAIN        = "#F0F4F8"   # light grey-blue
+BG_TAB         = "#FFFFFF"
+HEADER_BG      = "#2C3E50"   # dark navy
+HEADER_FG      = "#FFFFFF"
+BUTTON_PRIMARY = "#3498DB"   # blue
+BUTTON_DANGER  = "#E74C3C"   # red
+BUTTON_SUCCESS = "#2ECC71"   # green
+BUTTON_WARN    = "#F39C12"   # orange
+TEXT_DARK      = "#2C3E50"
+TEXT_LIGHT     = "#FFFFFF"
+ACCENT         = "#1ABC9C"   # teal
+
 class AccountingApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Customer Credit/Debit Manager")
-        self.root.geometry("950x700")
+        self.root.geometry("960x700")
+        self.root.configure(bg=BG_MAIN)
+        
         self.conn = sqlite3.connect(DB_NAME)
         self.create_tables()
         
+        # -------------------- Styles --------------------
+        self.style = ttk.Style()
+        self.style.theme_use('clam')
+        
+        # General frame style
+        self.style.configure('TFrame', background=BG_MAIN)
+        self.style.configure('TLabel', background=BG_MAIN, foreground=TEXT_DARK, font=('Segoe UI', 10))
+        self.style.configure('TNotebook', background=BG_MAIN, borderwidth=0)
+        self.style.configure('TNotebook.Tab', background=BG_TAB, foreground=TEXT_DARK, padding=[15, 5],
+                             font=('Segoe UI', 10, 'bold'))
+        self.style.map('TNotebook.Tab',
+                       background=[('selected', ACCENT), ('active', '#D5E8D4')],
+                       foreground=[('selected', TEXT_LIGHT)])
+        
+        # Buttons
+        self.style.configure('Primary.TButton', background=BUTTON_PRIMARY, foreground=TEXT_LIGHT,
+                             borderwidth=0, focuscolor='none', font=('Segoe UI', 10, 'bold'))
+        self.style.map('Primary.TButton',
+                       background=[('active', '#2980B9'), ('pressed', '#1F6DA0')])
+        self.style.configure('Danger.TButton', background=BUTTON_DANGER, foreground=TEXT_LIGHT,
+                             borderwidth=0, font=('Segoe UI', 10, 'bold'))
+        self.style.map('Danger.TButton',
+                       background=[('active', '#C0392B'), ('pressed', '#A93226')])
+        self.style.configure('Success.TButton', background=BUTTON_SUCCESS, foreground=TEXT_LIGHT,
+                             borderwidth=0, font=('Segoe UI', 10, 'bold'))
+        self.style.map('Success.TButton',
+                       background=[('active', '#27AE60'), ('pressed', '#1E8449')])
+        self.style.configure('Warn.TButton', background=BUTTON_WARN, foreground=TEXT_LIGHT,
+                             borderwidth=0, font=('Segoe UI', 10, 'bold'))
+        self.style.map('Warn.TButton',
+                       background=[('active', '#D68910'), ('pressed', '#B9770E')])
+        
+        # Treeview
+        self.style.configure('Treeview', background=BG_TAB, foreground=TEXT_DARK,
+                             rowheight=25, fieldbackground=BG_TAB, font=('Segoe UI', 9))
+        self.style.configure('Treeview.Heading', background=HEADER_BG, foreground=HEADER_FG,
+                             font=('Segoe UI', 9, 'bold'))
+        self.style.map('Treeview', background=[('selected', ACCENT)], foreground=[('selected', TEXT_LIGHT)])
+        
+        # Status bar
+        self.style.configure('Status.TLabel', background=HEADER_BG, foreground=TEXT_LIGHT,
+                             font=('Segoe UI', 9), padding=5)
+        
+        # -------------------- Notebook --------------------
         self.notebook = ttk.Notebook(root)
-        self.notebook.pack(fill='both', expand=True, padx=10, pady=10)
+        self.notebook.pack(fill='both', expand=True, padx=5, pady=(5,0))
         
         self.build_customers_tab()
         self.build_transactions_tab()
@@ -26,13 +85,18 @@ class AccountingApp:
         
         # Global status bar
         self.status_var = tk.StringVar()
-        status_bar = ttk.Label(root, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
+        status_bar = ttk.Label(root, textvariable=self.status_var, style='Status.TLabel', anchor=tk.W)
         status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+        self.status_var.set("Ready")
     
-    def set_status(self, msg, duration=3000):
+    def set_status(self, msg, is_error=False, duration=3000):
         """Show a temporary status message."""
         self.status_var.set(msg)
-        self.root.after(duration, lambda: self.status_var.set(""))
+        if is_error:
+            self.style.configure('Status.TLabel', background=BUTTON_DANGER)
+        else:
+            self.style.configure('Status.TLabel', background=BUTTON_SUCCESS)
+        self.root.after(duration, lambda: self.status_var.set("Ready"))
     
     def check_admin(self):
         """Ask for admin password. Returns True if correct, False if cancelled or wrong."""
@@ -70,14 +134,14 @@ class AccountingApp:
         self.cust_tree = ttk.Treeview(self.cust_frame, columns=cols, show='headings', height=15)
         for col in cols:
             self.cust_tree.heading(col, text=col)
-            self.cust_tree.column(col, width=120)
-        self.cust_tree.pack(fill='both', expand=True, padx=5, pady=5)
+            self.cust_tree.column(col, width=140, anchor='center')
+        self.cust_tree.pack(fill='both', expand=True, padx=10, pady=10)
         
         btn_frame = ttk.Frame(self.cust_frame)
-        btn_frame.pack(pady=5)
-        ttk.Button(btn_frame, text="Add Customer", command=self.add_customer).pack(side='left', padx=5)
-        ttk.Button(btn_frame, text="Edit Customer", command=self.edit_customer).pack(side='left', padx=5)
-        ttk.Button(btn_frame, text="Delete Customer", command=self.delete_customer).pack(side='left', padx=5)
+        btn_frame.pack(pady=(0,10))
+        ttk.Button(btn_frame, text="➕ Add Customer", style='Primary.TButton', command=self.add_customer).pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="✏️ Edit Customer", style='Warn.TButton', command=self.edit_customer).pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="🗑️ Delete Customer", style='Danger.TButton', command=self.delete_customer).pack(side='left', padx=5)
         
         self.refresh_customer_list()
     
@@ -129,6 +193,7 @@ class AccountingApp:
         dlg.title(title)
         dlg.geometry("350x250")
         dlg.resizable(False, False)
+        dlg.configure(bg=BG_MAIN)
         
         dlg.update_idletasks()
         main_x = self.root.winfo_rootx()
@@ -150,15 +215,15 @@ class AccountingApp:
         
         ttk.Label(frame, text="Name:").grid(row=0, column=0, sticky='w', pady=5)
         name_var = tk.StringVar(value=name)
-        ttk.Entry(frame, textvariable=name_var, width=25).grid(row=0, column=1, padx=5, pady=5)
+        ttk.Entry(frame, textvariable=name_var, width=25, font=('Segoe UI', 10)).grid(row=0, column=1, padx=5, pady=5)
         
         ttk.Label(frame, text="Phone:").grid(row=1, column=0, sticky='w', pady=5)
         phone_var = tk.StringVar(value=phone)
-        ttk.Entry(frame, textvariable=phone_var, width=25).grid(row=1, column=1, padx=5, pady=5)
+        ttk.Entry(frame, textvariable=phone_var, width=25, font=('Segoe UI', 10)).grid(row=1, column=1, padx=5, pady=5)
         
         ttk.Label(frame, text="Email:").grid(row=2, column=0, sticky='w', pady=5)
         email_var = tk.StringVar(value=email)
-        ttk.Entry(frame, textvariable=email_var, width=25).grid(row=2, column=1, padx=5, pady=5)
+        ttk.Entry(frame, textvariable=email_var, width=25, font=('Segoe UI', 10)).grid(row=2, column=1, padx=5, pady=5)
         
         def save():
             n = name_var.get().strip()
@@ -174,16 +239,16 @@ class AccountingApp:
             self.conn.commit()
             dlg.destroy()
             self.refresh_customer_list()
-            self.populate_customer_combo()   # Update dropdowns instantly
+            self.populate_customer_combo()
             self.populate_report_combo()
             self.refresh_transaction_list()
             self.set_status("Customer saved.")
         
-        btn = ttk.Button(frame, text="💾 SAVE CUSTOMER", command=save)
-        btn.grid(row=3, column=0, columnspan=2, pady=20)
-        style = ttk.Style()
-        style.configure('Big.TButton', font=('TkDefaultFont', 12, 'bold'))
-        btn.configure(style='Big.TButton')
+        save_btn = ttk.Button(frame, text="💾 SAVE CUSTOMER", style='Success.TButton', command=save)
+        save_btn.grid(row=3, column=0, columnspan=2, pady=20)
+        # Make it bigger
+        self.style.configure('Success.TButton', font=('Segoe UI', 12, 'bold'))
+        save_btn.configure(style='Success.TButton')
     
     # ---------------- Transactions Tab ----------------
     def build_transactions_tab(self):
@@ -191,18 +256,18 @@ class AccountingApp:
         self.notebook.add(self.trans_frame, text="Transactions")
         
         top = ttk.Frame(self.trans_frame)
-        top.pack(fill='x', padx=5, pady=5)
+        top.pack(fill='x', padx=10, pady=10)
         ttk.Label(top, text="Customer:").pack(side='left')
-        self.cust_combo = ttk.Combobox(top, state='readonly')
+        self.cust_combo = ttk.Combobox(top, state='readonly', font=('Segoe UI', 10))
         self.cust_combo.pack(side='left', padx=5)
         self.cust_combo.bind('<<ComboboxSelected>>', lambda e: self.refresh_transaction_list())
         
         entry_frame = ttk.Frame(self.trans_frame)
-        entry_frame.pack(fill='x', padx=5, pady=5)
+        entry_frame.pack(fill='x', padx=10, pady=5)
         
         ttk.Label(entry_frame, text="Date (YYYY-MM-DD):").grid(row=0, column=0, sticky='w')
         self.date_var = tk.StringVar(value=datetime.today().strftime('%Y-%m-%d'))
-        ttk.Entry(entry_frame, textvariable=self.date_var, width=15).grid(row=0, column=1, padx=5)
+        ttk.Entry(entry_frame, textvariable=self.date_var, width=12, font=('Segoe UI', 10)).grid(row=0, column=1, padx=5)
         
         ttk.Label(entry_frame, text="Type:").grid(row=0, column=2, sticky='w', padx=(20,0))
         self.type_var = tk.StringVar(value='credit')
@@ -211,15 +276,15 @@ class AccountingApp:
         
         ttk.Label(entry_frame, text="Amount:").grid(row=1, column=0, sticky='w', pady=5)
         self.amount_var = tk.StringVar()
-        ttk.Entry(entry_frame, textvariable=self.amount_var, width=15).grid(row=1, column=1, pady=5)
+        ttk.Entry(entry_frame, textvariable=self.amount_var, width=12, font=('Segoe UI', 10)).grid(row=1, column=1, pady=5)
         
         ttk.Label(entry_frame, text="Description:").grid(row=1, column=2, sticky='w', padx=(20,0), pady=5)
         self.desc_var = tk.StringVar()
-        ttk.Entry(entry_frame, textvariable=self.desc_var, width=25).grid(row=1, column=3, columnspan=2, padx=5, pady=5)
+        ttk.Entry(entry_frame, textvariable=self.desc_var, width=30, font=('Segoe UI', 10)).grid(row=1, column=3, columnspan=2, padx=5, pady=5)
         
-        ttk.Button(entry_frame, text="Record Transaction", command=self.record_transaction).grid(row=2, column=0, columnspan=5, pady=10)
+        ttk.Button(entry_frame, text="📝 Record Transaction", style='Primary.TButton', command=self.record_transaction).grid(row=2, column=0, columnspan=5, pady=10)
         
-        # Ledger view with delete button
+        # Ledger view
         cols = ('ID', 'Date', 'Description', 'Credit', 'Debit', 'Balance')
         self.ledger_tree = ttk.Treeview(self.trans_frame, columns=cols, show='headings', height=15)
         self.ledger_tree.heading('ID', text='ID')
@@ -229,14 +294,14 @@ class AccountingApp:
         self.ledger_tree.heading('Debit', text='Debit')
         self.ledger_tree.heading('Balance', text='Balance')
         self.ledger_tree.column('ID', width=0, stretch=False)
-        self.ledger_tree.column('Date', width=100)
-        self.ledger_tree.column('Description', width=180)
-        self.ledger_tree.column('Credit', width=90)
-        self.ledger_tree.column('Debit', width=90)
-        self.ledger_tree.column('Balance', width=90)
-        self.ledger_tree.pack(fill='both', expand=True, padx=5, pady=5)
+        self.ledger_tree.column('Date', width=100, anchor='center')
+        self.ledger_tree.column('Description', width=200)
+        self.ledger_tree.column('Credit', width=100, anchor='center')
+        self.ledger_tree.column('Debit', width=100, anchor='center')
+        self.ledger_tree.column('Balance', width=100, anchor='center')
+        self.ledger_tree.pack(fill='both', expand=True, padx=10, pady=5)
         
-        ttk.Button(self.trans_frame, text="Delete Selected Transaction", command=self.delete_transaction).pack(pady=5)
+        ttk.Button(self.trans_frame, text="🗑️ Delete Selected Transaction", style='Danger.TButton', command=self.delete_transaction).pack(pady=5)
         
         self.populate_customer_combo()
     
@@ -305,7 +370,7 @@ class AccountingApp:
         self.desc_var.set('')
         self.date_var.set(datetime.today().strftime('%Y-%m-%d'))
         self.refresh_transaction_list()
-        self.set_status("Transaction recorded.")   # <-- no more pop-up, just status bar
+        self.set_status("Transaction recorded.")   # status bar, no pop-up
     
     def delete_transaction(self):
         if not self.check_admin():
@@ -314,7 +379,7 @@ class AccountingApp:
         if not selected:
             messagebox.showwarning("Warning", "Select a transaction to delete.")
             return
-        tid = self.ledger_tree.item(selected[0])['values'][0]  # hidden ID column
+        tid = self.ledger_tree.item(selected[0])['values'][0]
         if messagebox.askyesno("Confirm", "Delete this transaction? This cannot be undone."):
             self.conn.execute("DELETE FROM transactions WHERE id=?", (tid,))
             self.conn.commit()
@@ -329,21 +394,20 @@ class AccountingApp:
         top = ttk.Frame(self.report_frame)
         top.pack(fill='x', padx=10, pady=10)
         ttk.Label(top, text="Customer:").pack(side='left')
-        self.report_cust_combo = ttk.Combobox(top, state='readonly', width=30)
+        self.report_cust_combo = ttk.Combobox(top, state='readonly', font=('Segoe UI', 10), width=30)
         self.report_cust_combo.pack(side='left', padx=5)
         
-        # Date range
         date_frame = ttk.Frame(self.report_frame)
         date_frame.pack(fill='x', padx=10, pady=5)
         ttk.Label(date_frame, text="From (YYYY-MM-DD):").grid(row=0, column=0, sticky='w')
         self.report_from_var = tk.StringVar()
-        ttk.Entry(date_frame, textvariable=self.report_from_var, width=12).grid(row=0, column=1, padx=5)
+        ttk.Entry(date_frame, textvariable=self.report_from_var, width=12, font=('Segoe UI', 10)).grid(row=0, column=1, padx=5)
         ttk.Label(date_frame, text="To (YYYY-MM-DD):").grid(row=0, column=2, sticky='w', padx=(20,0))
         self.report_to_var = tk.StringVar()
-        ttk.Entry(date_frame, textvariable=self.report_to_var, width=12).grid(row=0, column=3, padx=5)
+        ttk.Entry(date_frame, textvariable=self.report_to_var, width=12, font=('Segoe UI', 10)).grid(row=0, column=3, padx=5)
         ttk.Label(date_frame, text="(leave empty for all dates)").grid(row=0, column=4, padx=10)
         
-        ttk.Button(top, text="Generate PDF Statement", command=self.generate_pdf).pack(side='left', padx=20)
+        ttk.Button(top, text="📄 Generate PDF Statement", style='Success.TButton', command=self.generate_pdf).pack(side='left', padx=20)
         
         self.populate_report_combo()
     
@@ -363,7 +427,6 @@ class AccountingApp:
         cid = int(sel.split(' - ')[0])
         cname = sel.split(' - ', 1)[1]
         
-        # Read date filters
         from_date = self.report_from_var.get().strip()
         to_date = self.report_to_var.get().strip()
         for d in [from_date, to_date]:
@@ -395,7 +458,6 @@ class AccountingApp:
         elements.append(Spacer(1, 12))
         
         cur = self.conn.cursor()
-        # Build query with optional date filter
         query = "SELECT date, description, type, amount FROM transactions WHERE customer_id=?"
         params = [cid]
         if from_date:
@@ -427,13 +489,13 @@ class AccountingApp:
         col_widths = [80, 220, 70, 70, 70]
         table = Table(table_data, colWidths=col_widths)
         table.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,0), colors.grey),
-            ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor(HEADER_BG)),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.white),
             ('ALIGN', (2,0), (-1,-1), 'RIGHT'),
             ('FONTSIZE', (0,0), (-1,-1), 9),
             ('GRID', (0,0), (-1,-2), 0.5, colors.black),
             ('LINEBELOW', (0,-1), (-1,-1), 1, colors.black),
-            ('BACKGROUND', (0,-1), (-1,-1), colors.lightgrey),
+            ('BACKGROUND', (0,-1), (-1,-1), colors.HexColor("#D5E8D4")),
         ]))
         
         elements.append(table)
