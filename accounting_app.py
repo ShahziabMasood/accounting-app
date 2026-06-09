@@ -1,10 +1,11 @@
 import tkinter as tk
-from tkinter import ttk, messagebox, simpledialog
+from tkinter import ttk, messagebox, simpledialog, filedialog
 import sqlite3
 from datetime import datetime, timedelta
 import os
 import platform
 import subprocess
+import shutil
 
 DB_NAME = "accounting.db"
 ADMIN_PASSWORD = "admin"   # Change this to your desired password
@@ -134,24 +135,86 @@ class AccountingApp:
         elif selected_tab == "Transactions":
             self.refresh_transaction_list()
     
+    # ---------------- Backup & Restore ----------------
+    def backup_database(self):
+        if not self.check_admin():
+            return
+        # Choose where to save the backup
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".db",
+            filetypes=[("Database files", "*.db"), ("All files", "*.*")],
+            initialfile=f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db",
+            title="Save Backup As"
+        )
+        if not file_path:
+            return
+        try:
+            # Close current connection to flush all changes
+            self.conn.close()
+            shutil.copy2(DB_NAME, file_path)
+            # Reopen connection
+            self.conn = sqlite3.connect(DB_NAME)
+            self.set_status(f"Backup saved to {file_path}")
+        except Exception as e:
+            self.conn = sqlite3.connect(DB_NAME)  # ensure reconnected
+            messagebox.showerror("Backup Error", str(e))
+    
+    def restore_database(self):
+        if not self.check_admin():
+            return
+        # Confirm restore action
+        if not messagebox.askyesno("Confirm Restore",
+                                   "This will replace ALL current data with the backup.\nAre you sure?"):
+            return
+        file_path = filedialog.askopenfilename(
+            filetypes=[("Database files", "*.db"), ("All files", "*.*")],
+            title="Select Backup File"
+        )
+        if not file_path:
+            return
+        try:
+            # Close current connection
+            self.conn.close()
+            # Overwrite current database with backup
+            shutil.copy2(file_path, DB_NAME)
+            # Reconnect
+            self.conn = sqlite3.connect(DB_NAME)
+            # Refresh all UI
+            self.refresh_account_list()
+            self.populate_account_combo()
+            self.populate_report_combo()
+            self.refresh_transaction_list()
+            self.refresh_overview()
+            self.set_status("Database restored successfully.")
+        except Exception as e:
+            self.conn = sqlite3.connect(DB_NAME)  # ensure reconnected
+            messagebox.showerror("Restore Error", str(e))
+    
     # ---------------- Accounts Tab ----------------
     def build_accounts_tab(self):
         self.acc_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.acc_frame, text="Accounts")
         
         cols = ('ID', 'Name', 'Type', 'Bank Name', 'Account Name', 'Account No')
-        self.acc_tree = ttk.Treeview(self.acc_frame, columns=cols, show='headings', height=15)
+        self.acc_tree = ttk.Treeview(self.acc_frame, columns=cols, show='headings', height=12)
         widths = {'ID':40, 'Name':120, 'Type':80, 'Bank Name':130, 'Account Name':150, 'Account No':120}
         for col in cols:
             self.acc_tree.heading(col, text=col)
             self.acc_tree.column(col, width=widths.get(col, 100), anchor='center')
         self.acc_tree.pack(fill='both', expand=True, padx=10, pady=10)
         
+        # Account buttons
         btn_frame = ttk.Frame(self.acc_frame)
         btn_frame.pack(pady=(0,10))
         ttk.Button(btn_frame, text="➕ Add Account", style='Primary.TButton', command=self.add_account).pack(side='left', padx=5)
         ttk.Button(btn_frame, text="✏️ Edit Account", style='Warn.TButton', command=self.edit_account).pack(side='left', padx=5)
         ttk.Button(btn_frame, text="🗑️ Delete Account", style='Danger.TButton', command=self.delete_account).pack(side='left', padx=5)
+        
+        # Backup & Restore buttons
+        bk_frame = ttk.Frame(self.acc_frame)
+        bk_frame.pack(pady=(5,10))
+        ttk.Button(bk_frame, text="💾 Backup Database", style='Success.TButton', command=self.backup_database).pack(side='left', padx=5)
+        ttk.Button(bk_frame, text="📥 Restore Database", style='Primary.TButton', command=self.restore_database).pack(side='left', padx=5)
         
         self.refresh_account_list()
     
@@ -352,7 +415,7 @@ class AccountingApp:
         
         # Ledger view
         cols = ('ID', 'Date', 'Description', 'Credit', 'Debit', 'Balance')
-        self.ledger_tree = ttk.Treeview(self.trans_frame, columns=cols, show='headings', height=15)
+        self.ledger_tree = ttk.Treeview(self.trans_frame, columns=cols, show='headings', height=12)
         self.ledger_tree.heading('ID', text='ID')
         self.ledger_tree.heading('Date', text='Date')
         self.ledger_tree.heading('Description', text='Description')
@@ -505,7 +568,7 @@ class AccountingApp:
         title_lbl.pack(pady=10)
         
         cols = ('Account', 'Type', 'Total Credit', 'Total Debit', 'Net Balance')
-        self.overview_tree = ttk.Treeview(self.overview_frame, columns=cols, show='headings', height=15)
+        self.overview_tree = ttk.Treeview(self.overview_frame, columns=cols, show='headings', height=12)
         self.overview_tree.heading('Account', text='Account')
         self.overview_tree.heading('Type', text='Type')
         self.overview_tree.heading('Total Credit', text='Total Credit')
@@ -739,7 +802,6 @@ class AccountingApp:
         self.set_status(f"PDF generated: {filename}")
     
     def generate_overall_pdf(self):
-        """Generate a PDF report summarizing all accounts for the current period."""
         from_date, to_date = self.get_report_date_range()
         for d in [from_date, to_date]:
             if d:
@@ -779,7 +841,6 @@ class AccountingApp:
         total_net = 0.0
         
         for aid, aname, atype in accounts:
-            # Build query with period filter
             query = "SELECT COALESCE(SUM(amount),0) FROM transactions WHERE account_id=? AND type='credit'"
             params = [aid]
             if from_date:
@@ -809,7 +870,6 @@ class AccountingApp:
             
             table_data.append([aname, atype or 'Bank', f"{credit:,.2f}", f"{debit:,.2f}", f"{net:,.2f}"])
         
-        # Grand totals row
         table_data.append(["GRAND TOTALS", "", f"{total_credit:,.2f}", f"{total_debit:,.2f}", f"{total_net:,.2f}"])
         
         col_widths = [120, 60, 80, 80, 80]
