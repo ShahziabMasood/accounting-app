@@ -105,7 +105,7 @@ class AccountingApp:
         cur.execute('''CREATE TABLE IF NOT EXISTS accounts (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         name TEXT NOT NULL,
-                        type TEXT DEFAULT 'Bank',  -- Bank, Cash, etc.
+                        type TEXT DEFAULT 'Bank',
                         bank_name TEXT,
                         account_name TEXT,
                         account_number TEXT)''')
@@ -120,7 +120,6 @@ class AccountingApp:
         self.conn.commit()
     
     def migrate_tables(self):
-        """Add type column if missing (for existing databases)."""
         cur = self.conn.cursor()
         cur.execute("PRAGMA table_info(accounts)")
         existing_cols = [col[1] for col in cur.fetchall()]
@@ -167,7 +166,6 @@ class AccountingApp:
             ))
     
     def get_bank_list(self):
-        """Return distinct non-empty bank names from accounts where type is Bank."""
         cur = self.conn.cursor()
         cur.execute("SELECT DISTINCT bank_name FROM accounts WHERE type='Bank' AND bank_name IS NOT NULL AND bank_name != '' ORDER BY bank_name")
         return [row[0] for row in cur.fetchall()]
@@ -385,7 +383,6 @@ class AccountingApp:
             self.to_var.set('')
     
     def get_date_range(self):
-        """Return (from_date, to_date) based on selected period."""
         period = self.period_var.get()
         today = datetime.today()
         if period == 'All':
@@ -589,7 +586,10 @@ class AccountingApp:
         self.r_to_entry.grid(row=0, column=5)
         ttk.Label(date_frame, text="(leave empty for all dates)").grid(row=0, column=6, padx=10)
         
-        ttk.Button(top, text="📄 Generate PDF Statement", style='Success.TButton', command=self.generate_pdf).pack(side='left', padx=20)
+        btn_frame = ttk.Frame(self.report_frame)
+        btn_frame.pack(fill='x', padx=10, pady=10)
+        ttk.Button(btn_frame, text="📄 Generate Account Statement", style='Success.TButton', command=self.generate_pdf).pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="📊 Generate Overall Report", style='Primary.TButton', command=self.generate_overall_pdf).pack(side='left', padx=5)
         
         self.populate_report_combo()
     
@@ -737,6 +737,107 @@ class AccountingApp:
             pass
         
         self.set_status(f"PDF generated: {filename}")
+    
+    def generate_overall_pdf(self):
+        """Generate a PDF report summarizing all accounts for the current period."""
+        from_date, to_date = self.get_report_date_range()
+        for d in [from_date, to_date]:
+            if d:
+                try:
+                    datetime.strptime(d, '%Y-%m-%d')
+                except ValueError:
+                    messagebox.showerror("Error", "Dates must be YYYY-MM-DD (or leave empty).")
+                    return
+        
+        try:
+            from reportlab.lib.pagesizes import A4
+            from reportlab.lib import colors
+            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+            from reportlab.lib.styles import getSampleStyleSheet
+        except ImportError:
+            messagebox.showerror("Error", "reportlab library is required for PDF generation.")
+            return
+        
+        cur = self.conn.cursor()
+        cur.execute("SELECT id, name, type FROM accounts ORDER BY name")
+        accounts = cur.fetchall()
+        
+        filename = f"overall_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        doc = SimpleDocTemplate(filename, pagesize=A4)
+        styles = getSampleStyleSheet()
+        elements = []
+        
+        elements.append(Paragraph("Overall Accounts Report", styles['Title']))
+        if from_date or to_date:
+            period = f"Period: {from_date or 'start'} to {to_date or 'end'}"
+            elements.append(Paragraph(period, styles['Normal']))
+        elements.append(Spacer(1, 12))
+        
+        table_data = [["Account", "Type", "Credit", "Debit", "Net Balance"]]
+        total_credit = 0.0
+        total_debit = 0.0
+        total_net = 0.0
+        
+        for aid, aname, atype in accounts:
+            # Build query with period filter
+            query = "SELECT COALESCE(SUM(amount),0) FROM transactions WHERE account_id=? AND type='credit'"
+            params = [aid]
+            if from_date:
+                query += " AND date >= ?"
+                params.append(from_date)
+            if to_date:
+                query += " AND date <= ?"
+                params.append(to_date)
+            cur.execute(query, params)
+            credit = cur.fetchone()[0]
+            
+            query = "SELECT COALESCE(SUM(amount),0) FROM transactions WHERE account_id=? AND type='debit'"
+            params = [aid]
+            if from_date:
+                query += " AND date >= ?"
+                params.append(from_date)
+            if to_date:
+                query += " AND date <= ?"
+                params.append(to_date)
+            cur.execute(query, params)
+            debit = cur.fetchone()[0]
+            net = credit - debit
+            
+            total_credit += credit
+            total_debit += debit
+            total_net += net
+            
+            table_data.append([aname, atype or 'Bank', f"{credit:,.2f}", f"{debit:,.2f}", f"{net:,.2f}"])
+        
+        # Grand totals row
+        table_data.append(["GRAND TOTALS", "", f"{total_credit:,.2f}", f"{total_debit:,.2f}", f"{total_net:,.2f}"])
+        
+        col_widths = [120, 60, 80, 80, 80]
+        table = Table(table_data, colWidths=col_widths)
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor(HEADER_BG)),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+            ('ALIGN', (1,0), (-1,-1), 'CENTER'),
+            ('FONTSIZE', (0,0), (-1,-1), 9),
+            ('GRID', (0,0), (-1,-2), 0.5, colors.black),
+            ('LINEBELOW', (0,-1), (-1,-1), 1, colors.black),
+            ('BACKGROUND', (0,-1), (-1,-1), colors.HexColor("#D5E8D4")),
+        ]))
+        
+        elements.append(table)
+        doc.build(elements)
+        
+        try:
+            if platform.system() == 'Windows':
+                os.startfile(filename)
+            elif platform.system() == 'Darwin':
+                subprocess.run(['open', filename])
+            else:
+                subprocess.run(['xdg-open', filename])
+        except:
+            pass
+        
+        self.set_status(f"Overall report generated: {filename}")
 
 if __name__ == "__main__":
     root = tk.Tk()
