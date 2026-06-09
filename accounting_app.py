@@ -13,7 +13,7 @@ class AccountingApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Customer Credit/Debit Manager")
-        self.root.geometry("950x650")
+        self.root.geometry("950x700")
         self.conn = sqlite3.connect(DB_NAME)
         self.create_tables()
         
@@ -23,10 +23,22 @@ class AccountingApp:
         self.build_customers_tab()
         self.build_transactions_tab()
         self.build_report_tab()
+        
+        # Global status bar
+        self.status_var = tk.StringVar()
+        status_bar = ttk.Label(root, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
+        status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+    
+    def set_status(self, msg, duration=3000):
+        """Show a temporary status message."""
+        self.status_var.set(msg)
+        self.root.after(duration, lambda: self.status_var.set(""))
     
     def check_admin(self):
-        """Ask for admin password before critical operations."""
+        """Ask for admin password. Returns True if correct, False if cancelled or wrong."""
         pwd = simpledialog.askstring("Admin Password", "Enter admin password:", show="*")
+        if pwd is None:                 # User cancelled
+            return False
         if pwd != ADMIN_PASSWORD:
             messagebox.showerror("Access Denied", "Incorrect password.")
             return False
@@ -110,6 +122,7 @@ class AccountingApp:
             self.refresh_transaction_list()
             self.populate_customer_combo()
             self.populate_report_combo()
+            self.set_status("Customer deleted.")
     
     def _customer_dialog(self, title, cid=None, name='', phone='', email=''):
         dlg = tk.Toplevel(self.root)
@@ -164,7 +177,7 @@ class AccountingApp:
             self.populate_customer_combo()   # Update dropdowns instantly
             self.populate_report_combo()
             self.refresh_transaction_list()
-            messagebox.showinfo("Success", "Customer saved.", parent=self.root)
+            self.set_status("Customer saved.")
         
         btn = ttk.Button(frame, text="💾 SAVE CUSTOMER", command=save)
         btn.grid(row=3, column=0, columnspan=2, pady=20)
@@ -215,7 +228,6 @@ class AccountingApp:
         self.ledger_tree.heading('Credit', text='Credit')
         self.ledger_tree.heading('Debit', text='Debit')
         self.ledger_tree.heading('Balance', text='Balance')
-        # Hide ID column (but keep it to retrieve the transaction id)
         self.ledger_tree.column('ID', width=0, stretch=False)
         self.ledger_tree.column('Date', width=100)
         self.ledger_tree.column('Description', width=180)
@@ -237,7 +249,6 @@ class AccountingApp:
             self.cust_combo.current(0)
             self.refresh_transaction_list()
         else:
-            # Clear ledger when no customers
             for row in self.ledger_tree.get_children():
                 self.ledger_tree.delete(row)
     
@@ -294,7 +305,7 @@ class AccountingApp:
         self.desc_var.set('')
         self.date_var.set(datetime.today().strftime('%Y-%m-%d'))
         self.refresh_transaction_list()
-        messagebox.showinfo("Success", "Transaction recorded.")
+        self.set_status("Transaction recorded.")   # <-- no more pop-up, just status bar
     
     def delete_transaction(self):
         if not self.check_admin():
@@ -308,7 +319,7 @@ class AccountingApp:
             self.conn.execute("DELETE FROM transactions WHERE id=?", (tid,))
             self.conn.commit()
             self.refresh_transaction_list()
-            messagebox.showinfo("Success", "Transaction deleted.")
+            self.set_status("Transaction deleted.")
     
     # ---------------- Reports Tab ----------------
     def build_report_tab(self):
@@ -320,6 +331,17 @@ class AccountingApp:
         ttk.Label(top, text="Customer:").pack(side='left')
         self.report_cust_combo = ttk.Combobox(top, state='readonly', width=30)
         self.report_cust_combo.pack(side='left', padx=5)
+        
+        # Date range
+        date_frame = ttk.Frame(self.report_frame)
+        date_frame.pack(fill='x', padx=10, pady=5)
+        ttk.Label(date_frame, text="From (YYYY-MM-DD):").grid(row=0, column=0, sticky='w')
+        self.report_from_var = tk.StringVar()
+        ttk.Entry(date_frame, textvariable=self.report_from_var, width=12).grid(row=0, column=1, padx=5)
+        ttk.Label(date_frame, text="To (YYYY-MM-DD):").grid(row=0, column=2, sticky='w', padx=(20,0))
+        self.report_to_var = tk.StringVar()
+        ttk.Entry(date_frame, textvariable=self.report_to_var, width=12).grid(row=0, column=3, padx=5)
+        ttk.Label(date_frame, text="(leave empty for all dates)").grid(row=0, column=4, padx=10)
         
         ttk.Button(top, text="Generate PDF Statement", command=self.generate_pdf).pack(side='left', padx=20)
         
@@ -341,6 +363,17 @@ class AccountingApp:
         cid = int(sel.split(' - ')[0])
         cname = sel.split(' - ', 1)[1]
         
+        # Read date filters
+        from_date = self.report_from_var.get().strip()
+        to_date = self.report_to_var.get().strip()
+        for d in [from_date, to_date]:
+            if d:
+                try:
+                    datetime.strptime(d, '%Y-%m-%d')
+                except ValueError:
+                    messagebox.showerror("Error", "Dates must be YYYY-MM-DD (or leave empty).")
+                    return
+        
         try:
             from reportlab.lib.pagesizes import A4
             from reportlab.lib import colors
@@ -356,10 +389,23 @@ class AccountingApp:
         elements = []
         
         elements.append(Paragraph(f"Customer Statement – {cname}", styles['Title']))
+        if from_date or to_date:
+            period = f"Period: {from_date or 'start'} to {to_date or 'end'}"
+            elements.append(Paragraph(period, styles['Normal']))
         elements.append(Spacer(1, 12))
         
         cur = self.conn.cursor()
-        cur.execute("SELECT date, description, type, amount FROM transactions WHERE customer_id=? ORDER BY date, id", (cid,))
+        # Build query with optional date filter
+        query = "SELECT date, description, type, amount FROM transactions WHERE customer_id=?"
+        params = [cid]
+        if from_date:
+            query += " AND date >= ?"
+            params.append(from_date)
+        if to_date:
+            query += " AND date <= ?"
+            params.append(to_date)
+        query += " ORDER BY date, id"
+        cur.execute(query, params)
         rows = cur.fetchall()
         
         table_data = [["Date", "Description", "Credit", "Debit", "Balance"]]
@@ -403,7 +449,7 @@ class AccountingApp:
         except:
             pass
         
-        messagebox.showinfo("Success", f"PDF generated:\n{filename}")
+        self.set_status(f"PDF generated: {filename}")
 
 if __name__ == "__main__":
     root = tk.Tk()
