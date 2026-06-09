@@ -10,17 +10,17 @@ DB_NAME = "accounting.db"
 ADMIN_PASSWORD = "admin"   # Change this to your desired password
 
 # -------------------- Color Palette --------------------
-BG_MAIN        = "#F0F4F8"   # light grey-blue
+BG_MAIN        = "#F0F4F8"
 BG_TAB         = "#FFFFFF"
-HEADER_BG      = "#2C3E50"   # dark navy
+HEADER_BG      = "#2C3E50"
 HEADER_FG      = "#FFFFFF"
-BUTTON_PRIMARY = "#3498DB"   # blue
-BUTTON_DANGER  = "#E74C3C"   # red
-BUTTON_SUCCESS = "#2ECC71"   # green
-BUTTON_WARN    = "#F39C12"   # orange
+BUTTON_PRIMARY = "#3498DB"
+BUTTON_DANGER  = "#E74C3C"
+BUTTON_SUCCESS = "#2ECC71"
+BUTTON_WARN    = "#F39C12"
 TEXT_DARK      = "#2C3E50"
 TEXT_LIGHT     = "#FFFFFF"
-ACCENT         = "#1ABC9C"   # teal
+ACCENT         = "#1ABC9C"
 
 class AccountingApp:
     def __init__(self, root):
@@ -31,12 +31,11 @@ class AccountingApp:
         
         self.conn = sqlite3.connect(DB_NAME)
         self.create_tables()
+        self.migrate_tables()
         
         # -------------------- Styles --------------------
         self.style = ttk.Style()
         self.style.theme_use('clam')
-        
-        # General frame style
         self.style.configure('TFrame', background=BG_MAIN)
         self.style.configure('TLabel', background=BG_MAIN, foreground=TEXT_DARK, font=('Segoe UI', 10))
         self.style.configure('TNotebook', background=BG_MAIN, borderwidth=0)
@@ -45,8 +44,6 @@ class AccountingApp:
         self.style.map('TNotebook.Tab',
                        background=[('selected', ACCENT), ('active', '#D5E8D4')],
                        foreground=[('selected', TEXT_LIGHT)])
-        
-        # Buttons
         self.style.configure('Primary.TButton', background=BUTTON_PRIMARY, foreground=TEXT_LIGHT,
                              borderwidth=0, focuscolor='none', font=('Segoe UI', 10, 'bold'))
         self.style.map('Primary.TButton',
@@ -63,19 +60,14 @@ class AccountingApp:
                              borderwidth=0, font=('Segoe UI', 10, 'bold'))
         self.style.map('Warn.TButton',
                        background=[('active', '#D68910'), ('pressed', '#B9770E')])
-        
-        # Treeview
         self.style.configure('Treeview', background=BG_TAB, foreground=TEXT_DARK,
                              rowheight=25, fieldbackground=BG_TAB, font=('Segoe UI', 9))
         self.style.configure('Treeview.Heading', background=HEADER_BG, foreground=HEADER_FG,
                              font=('Segoe UI', 9, 'bold'))
         self.style.map('Treeview', background=[('selected', ACCENT)], foreground=[('selected', TEXT_LIGHT)])
-        
-        # Status bar
         self.style.configure('Status.TLabel', background=HEADER_BG, foreground=TEXT_LIGHT,
                              font=('Segoe UI', 9), padding=5)
         
-        # -------------------- Notebook --------------------
         self.notebook = ttk.Notebook(root)
         self.notebook.pack(fill='both', expand=True, padx=5, pady=(5,0))
         
@@ -83,14 +75,12 @@ class AccountingApp:
         self.build_transactions_tab()
         self.build_report_tab()
         
-        # Global status bar
         self.status_var = tk.StringVar()
         status_bar = ttk.Label(root, textvariable=self.status_var, style='Status.TLabel', anchor=tk.W)
         status_bar.pack(side=tk.BOTTOM, fill=tk.X)
         self.status_var.set("Ready")
     
     def set_status(self, msg, is_error=False, duration=3000):
-        """Show a temporary status message."""
         self.status_var.set(msg)
         if is_error:
             self.style.configure('Status.TLabel', background=BUTTON_DANGER)
@@ -99,9 +89,8 @@ class AccountingApp:
         self.root.after(duration, lambda: self.status_var.set("Ready"))
     
     def check_admin(self):
-        """Ask for admin password. Returns True if correct, False if cancelled or wrong."""
         pwd = simpledialog.askstring("Admin Password", "Enter admin password:", show="*")
-        if pwd is None:                 # User cancelled
+        if pwd is None:
             return False
         if pwd != ADMIN_PASSWORD:
             messagebox.showerror("Access Denied", "Incorrect password.")
@@ -114,7 +103,10 @@ class AccountingApp:
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         name TEXT NOT NULL,
                         phone TEXT,
-                        email TEXT)''')
+                        email TEXT,
+                        bank_name TEXT,
+                        account_name TEXT,
+                        account_number TEXT)''')
         cur.execute('''CREATE TABLE IF NOT EXISTS transactions (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         customer_id INTEGER NOT NULL,
@@ -125,16 +117,27 @@ class AccountingApp:
                         FOREIGN KEY (customer_id) REFERENCES customers(id))''')
         self.conn.commit()
     
+    def migrate_tables(self):
+        """Add bank columns if missing (for existing databases)."""
+        cur = self.conn.cursor()
+        cur.execute("PRAGMA table_info(customers)")
+        existing_cols = [col[1] for col in cur.fetchall()]
+        for col, col_def in [('bank_name', 'TEXT'), ('account_name', 'TEXT'), ('account_number', 'TEXT')]:
+            if col not in existing_cols:
+                cur.execute(f"ALTER TABLE customers ADD COLUMN {col} {col_def}")
+        self.conn.commit()
+    
     # ---------------- Customers Tab ----------------
     def build_customers_tab(self):
         self.cust_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.cust_frame, text="Customers")
         
-        cols = ('ID', 'Name', 'Phone', 'Email')
+        cols = ('ID', 'Name', 'Phone', 'Email', 'Bank Name', 'Account Name', 'Account No')
         self.cust_tree = ttk.Treeview(self.cust_frame, columns=cols, show='headings', height=15)
+        widths = {'ID':40, 'Name':120, 'Phone':90, 'Email':130, 'Bank Name':100, 'Account Name':120, 'Account No':100}
         for col in cols:
             self.cust_tree.heading(col, text=col)
-            self.cust_tree.column(col, width=140, anchor='center')
+            self.cust_tree.column(col, width=widths.get(col, 100), anchor='center')
         self.cust_tree.pack(fill='both', expand=True, padx=10, pady=10)
         
         btn_frame = ttk.Frame(self.cust_frame)
@@ -149,9 +152,17 @@ class AccountingApp:
         for row in self.cust_tree.get_children():
             self.cust_tree.delete(row)
         cur = self.conn.cursor()
-        cur.execute("SELECT id, name, phone, email FROM customers ORDER BY name")
-        for cid, name, phone, email in cur.fetchall():
-            self.cust_tree.insert('', 'end', values=(cid, name, phone if phone else '', email if email else ''))
+        cur.execute("SELECT id, name, phone, email, bank_name, account_name, account_number FROM customers ORDER BY name")
+        for row in cur.fetchall():
+            self.cust_tree.insert('', 'end', values=(
+                row[0], row[1], row[2] or '', row[3] or '', row[4] or '', row[5] or '', row[6] or ''
+            ))
+    
+    def get_bank_list(self):
+        """Return distinct non-empty bank names from customers."""
+        cur = self.conn.cursor()
+        cur.execute("SELECT DISTINCT bank_name FROM customers WHERE bank_name IS NOT NULL AND bank_name != '' ORDER BY bank_name")
+        return [row[0] for row in cur.fetchall()]
     
     def add_customer(self):
         if not self.check_admin():
@@ -167,9 +178,9 @@ class AccountingApp:
             return
         cid = self.cust_tree.item(selected[0])['values'][0]
         cur = self.conn.cursor()
-        cur.execute("SELECT name, phone, email FROM customers WHERE id=?", (cid,))
-        name, phone, email = cur.fetchone()
-        self._customer_dialog("Edit Customer", cid, name, phone, email)
+        cur.execute("SELECT name, phone, email, bank_name, account_name, account_number FROM customers WHERE id=?", (cid,))
+        row = cur.fetchone()
+        self._customer_dialog("Edit Customer", cid, row[0], row[1], row[2], row[3], row[4], row[5])
     
     def delete_customer(self):
         if not self.check_admin():
@@ -188,10 +199,11 @@ class AccountingApp:
             self.populate_report_combo()
             self.set_status("Customer deleted.")
     
-    def _customer_dialog(self, title, cid=None, name='', phone='', email=''):
+    def _customer_dialog(self, title, cid=None, name='', phone='', email='',
+                         bank_name='', account_name='', account_number=''):
         dlg = tk.Toplevel(self.root)
         dlg.title(title)
-        dlg.geometry("350x250")
+        dlg.geometry("400x400")
         dlg.resizable(False, False)
         dlg.configure(bg=BG_MAIN)
         
@@ -200,8 +212,8 @@ class AccountingApp:
         main_y = self.root.winfo_rooty()
         main_w = self.root.winfo_width()
         main_h = self.root.winfo_height()
-        popup_w = 350
-        popup_h = 250
+        popup_w = 400
+        popup_h = 400
         x = main_x + (main_w // 2) - (popup_w // 2)
         y = main_y + (main_h // 2) - (popup_h // 2)
         dlg.geometry(f"{popup_w}x{popup_h}+{x}+{y}")
@@ -213,29 +225,51 @@ class AccountingApp:
         frame = ttk.Frame(dlg, padding=20)
         frame.pack(fill='both', expand=True)
         
+        # Basic info
         ttk.Label(frame, text="Name:").grid(row=0, column=0, sticky='w', pady=5)
         name_var = tk.StringVar(value=name)
-        ttk.Entry(frame, textvariable=name_var, width=25, font=('Segoe UI', 10)).grid(row=0, column=1, padx=5, pady=5)
+        ttk.Entry(frame, textvariable=name_var, width=30, font=('Segoe UI', 10)).grid(row=0, column=1, padx=5, pady=5)
         
         ttk.Label(frame, text="Phone:").grid(row=1, column=0, sticky='w', pady=5)
         phone_var = tk.StringVar(value=phone)
-        ttk.Entry(frame, textvariable=phone_var, width=25, font=('Segoe UI', 10)).grid(row=1, column=1, padx=5, pady=5)
+        ttk.Entry(frame, textvariable=phone_var, width=30, font=('Segoe UI', 10)).grid(row=1, column=1, padx=5, pady=5)
         
         ttk.Label(frame, text="Email:").grid(row=2, column=0, sticky='w', pady=5)
         email_var = tk.StringVar(value=email)
-        ttk.Entry(frame, textvariable=email_var, width=25, font=('Segoe UI', 10)).grid(row=2, column=1, padx=5, pady=5)
+        ttk.Entry(frame, textvariable=email_var, width=30, font=('Segoe UI', 10)).grid(row=2, column=1, padx=5, pady=5)
+        
+        # Bank section
+        ttk.Label(frame, text="Bank Name:").grid(row=3, column=0, sticky='w', pady=5)
+        bank_var = tk.StringVar(value=bank_name)
+        bank_combo = ttk.Combobox(frame, textvariable=bank_var, width=27, font=('Segoe UI', 10))
+        bank_combo['values'] = self.get_bank_list()
+        bank_combo.grid(row=3, column=1, padx=5, pady=5)
+        # Allow typing new bank names
+        bank_combo.configure(state='normal')
+        
+        ttk.Label(frame, text="Account Name:").grid(row=4, column=0, sticky='w', pady=5)
+        acct_name_var = tk.StringVar(value=account_name)
+        ttk.Entry(frame, textvariable=acct_name_var, width=30, font=('Segoe UI', 10)).grid(row=4, column=1, padx=5, pady=5)
+        
+        ttk.Label(frame, text="Account Number:").grid(row=5, column=0, sticky='w', pady=5)
+        acct_num_var = tk.StringVar(value=account_number)
+        ttk.Entry(frame, textvariable=acct_num_var, width=30, font=('Segoe UI', 10)).grid(row=5, column=1, padx=5, pady=5)
         
         def save():
             n = name_var.get().strip()
             if not n:
                 messagebox.showerror("Error", "Name is required.", parent=dlg)
                 return
+            b_name = bank_var.get().strip()
+            a_name = acct_name_var.get().strip()
+            a_num = acct_num_var.get().strip()
+            
             if cid:
-                self.conn.execute("UPDATE customers SET name=?, phone=?, email=? WHERE id=?",
-                                  (n, phone_var.get(), email_var.get(), cid))
+                self.conn.execute("UPDATE customers SET name=?, phone=?, email=?, bank_name=?, account_name=?, account_number=? WHERE id=?",
+                                  (n, phone_var.get(), email_var.get(), b_name, a_name, a_num, cid))
             else:
-                self.conn.execute("INSERT INTO customers (name, phone, email) VALUES (?,?,?)",
-                                  (n, phone_var.get(), email_var.get()))
+                self.conn.execute("INSERT INTO customers (name, phone, email, bank_name, account_name, account_number) VALUES (?,?,?,?,?,?)",
+                                  (n, phone_var.get(), email_var.get(), b_name, a_name, a_num))
             self.conn.commit()
             dlg.destroy()
             self.refresh_customer_list()
@@ -245,8 +279,7 @@ class AccountingApp:
             self.set_status("Customer saved.")
         
         save_btn = ttk.Button(frame, text="💾 SAVE CUSTOMER", style='Success.TButton', command=save)
-        save_btn.grid(row=3, column=0, columnspan=2, pady=20)
-        # Make it bigger
+        save_btn.grid(row=6, column=0, columnspan=2, pady=20)
         self.style.configure('Success.TButton', font=('Segoe UI', 12, 'bold'))
         save_btn.configure(style='Success.TButton')
     
@@ -284,7 +317,6 @@ class AccountingApp:
         
         ttk.Button(entry_frame, text="📝 Record Transaction", style='Primary.TButton', command=self.record_transaction).grid(row=2, column=0, columnspan=5, pady=10)
         
-        # Ledger view
         cols = ('ID', 'Date', 'Description', 'Credit', 'Debit', 'Balance')
         self.ledger_tree = ttk.Treeview(self.trans_frame, columns=cols, show='headings', height=15)
         self.ledger_tree.heading('ID', text='ID')
@@ -370,7 +402,7 @@ class AccountingApp:
         self.desc_var.set('')
         self.date_var.set(datetime.today().strftime('%Y-%m-%d'))
         self.refresh_transaction_list()
-        self.set_status("Transaction recorded.")   # status bar, no pop-up
+        self.set_status("Transaction recorded.")
     
     def delete_transaction(self):
         if not self.check_admin():
@@ -446,18 +478,25 @@ class AccountingApp:
             messagebox.showerror("Error", "reportlab library is required for PDF generation.")
             return
         
+        # Fetch customer bank info
+        cur = self.conn.cursor()
+        cur.execute("SELECT bank_name, account_name, account_number FROM customers WHERE id=?", (cid,))
+        bank_info = cur.fetchone()
+        
         filename = f"statement_{cname.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
         doc = SimpleDocTemplate(filename, pagesize=A4)
         styles = getSampleStyleSheet()
         elements = []
         
         elements.append(Paragraph(f"Customer Statement – {cname}", styles['Title']))
+        if bank_info and (bank_info[0] or bank_info[1] or bank_info[2]):
+            bank_text = f"Bank: {bank_info[0] or 'N/A'} | Account Name: {bank_info[1] or 'N/A'} | Account No: {bank_info[2] or 'N/A'}"
+            elements.append(Paragraph(bank_text, styles['Normal']))
         if from_date or to_date:
             period = f"Period: {from_date or 'start'} to {to_date or 'end'}"
             elements.append(Paragraph(period, styles['Normal']))
         elements.append(Spacer(1, 12))
         
-        cur = self.conn.cursor()
         query = "SELECT date, description, type, amount FROM transactions WHERE customer_id=?"
         params = [cid]
         if from_date:
