@@ -7,7 +7,7 @@ import platform
 import subprocess
 
 DB_NAME = "accounting.db"
-ADMIN_PASSWORD = "illusion"   # Change this to your desired password
+ADMIN_PASSWORD = "admin"   # Change this to your desired password
 
 # -------------------- Color Palette --------------------
 BG_MAIN        = "#F0F4F8"
@@ -26,7 +26,7 @@ class AccountingApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Customer Credit/Debit Manager")
-        self.root.geometry("960x700")
+        self.root.geometry("1000x750")
         self.root.configure(bg=BG_MAIN)
         
         self.conn = sqlite3.connect(DB_NAME)
@@ -67,13 +67,20 @@ class AccountingApp:
         self.style.map('Treeview', background=[('selected', ACCENT)], foreground=[('selected', TEXT_LIGHT)])
         self.style.configure('Status.TLabel', background=HEADER_BG, foreground=TEXT_LIGHT,
                              font=('Segoe UI', 9), padding=5)
+        # Additional style for the totals row
+        self.style.configure('Total.Treeview', background='#D5E8D4', foreground=TEXT_DARK,
+                             font=('Segoe UI', 9, 'bold'))
         
         self.notebook = ttk.Notebook(root)
         self.notebook.pack(fill='both', expand=True, padx=5, pady=(5,0))
         
         self.build_customers_tab()
         self.build_transactions_tab()
+        self.build_overview_tab()        # NEW OVERVIEW TAB
         self.build_report_tab()
+        
+        # Bind tab change to refresh overview when switching to it
+        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
         
         self.status_var = tk.StringVar()
         status_bar = ttk.Label(root, textvariable=self.status_var, style='Status.TLabel', anchor=tk.W)
@@ -127,6 +134,12 @@ class AccountingApp:
                 cur.execute(f"ALTER TABLE customers ADD COLUMN {col} {col_def}")
         self.conn.commit()
     
+    def on_tab_changed(self, event):
+        """Refresh overview when the Overview tab is selected."""
+        selected_tab = self.notebook.tab(self.notebook.select(), "text")
+        if selected_tab == "Overview":
+            self.refresh_overview()
+    
     # ---------------- Customers Tab ----------------
     def build_customers_tab(self):
         self.cust_frame = ttk.Frame(self.notebook)
@@ -159,7 +172,6 @@ class AccountingApp:
             ))
     
     def get_bank_list(self):
-        """Return distinct non-empty bank names from customers."""
         cur = self.conn.cursor()
         cur.execute("SELECT DISTINCT bank_name FROM customers WHERE bank_name IS NOT NULL AND bank_name != '' ORDER BY bank_name")
         return [row[0] for row in cur.fetchall()]
@@ -197,6 +209,7 @@ class AccountingApp:
             self.refresh_transaction_list()
             self.populate_customer_combo()
             self.populate_report_combo()
+            self.refresh_overview()
             self.set_status("Customer deleted.")
     
     def _customer_dialog(self, title, cid=None, name='', phone='', email='',
@@ -225,7 +238,6 @@ class AccountingApp:
         frame = ttk.Frame(dlg, padding=20)
         frame.pack(fill='both', expand=True)
         
-        # Basic info
         ttk.Label(frame, text="Name:").grid(row=0, column=0, sticky='w', pady=5)
         name_var = tk.StringVar(value=name)
         ttk.Entry(frame, textvariable=name_var, width=30, font=('Segoe UI', 10)).grid(row=0, column=1, padx=5, pady=5)
@@ -238,13 +250,11 @@ class AccountingApp:
         email_var = tk.StringVar(value=email)
         ttk.Entry(frame, textvariable=email_var, width=30, font=('Segoe UI', 10)).grid(row=2, column=1, padx=5, pady=5)
         
-        # Bank section
         ttk.Label(frame, text="Bank Name:").grid(row=3, column=0, sticky='w', pady=5)
         bank_var = tk.StringVar(value=bank_name)
         bank_combo = ttk.Combobox(frame, textvariable=bank_var, width=27, font=('Segoe UI', 10))
         bank_combo['values'] = self.get_bank_list()
         bank_combo.grid(row=3, column=1, padx=5, pady=5)
-        # Allow typing new bank names
         bank_combo.configure(state='normal')
         
         ttk.Label(frame, text="Account Name:").grid(row=4, column=0, sticky='w', pady=5)
@@ -276,6 +286,7 @@ class AccountingApp:
             self.populate_customer_combo()
             self.populate_report_combo()
             self.refresh_transaction_list()
+            self.refresh_overview()
             self.set_status("Customer saved.")
         
         save_btn = ttk.Button(frame, text="💾 SAVE CUSTOMER", style='Success.TButton', command=save)
@@ -402,6 +413,7 @@ class AccountingApp:
         self.desc_var.set('')
         self.date_var.set(datetime.today().strftime('%Y-%m-%d'))
         self.refresh_transaction_list()
+        self.refresh_overview()
         self.set_status("Transaction recorded.")
     
     def delete_transaction(self):
@@ -416,7 +428,82 @@ class AccountingApp:
             self.conn.execute("DELETE FROM transactions WHERE id=?", (tid,))
             self.conn.commit()
             self.refresh_transaction_list()
+            self.refresh_overview()
             self.set_status("Transaction deleted.")
+    
+    # ---------------- Overview Tab (NEW) ----------------
+    def build_overview_tab(self):
+        self.overview_frame = ttk.Frame(self.notebook)
+        self.notebook.add(self.overview_frame, text="Overview")
+        
+        # Title
+        title_lbl = ttk.Label(self.overview_frame, text="Accounts Overview", font=('Segoe UI', 14, 'bold'))
+        title_lbl.pack(pady=10)
+        
+        # Treeview for customer totals
+        cols = ('Customer', 'Total Credit', 'Total Debit', 'Net Balance')
+        self.overview_tree = ttk.Treeview(self.overview_frame, columns=cols, show='headings', height=15)
+        self.overview_tree.heading('Customer', text='Customer')
+        self.overview_tree.heading('Total Credit', text='Total Credit')
+        self.overview_tree.heading('Total Debit', text='Total Debit')
+        self.overview_tree.heading('Net Balance', text='Net Balance')
+        self.overview_tree.column('Customer', width=250, anchor='w')
+        self.overview_tree.column('Total Credit', width=150, anchor='center')
+        self.overview_tree.column('Total Debit', width=150, anchor='center')
+        self.overview_tree.column('Net Balance', width=150, anchor='center')
+        self.overview_tree.pack(fill='both', expand=True, padx=10, pady=5)
+        
+        # Refresh button (optional, but auto-refresh also works)
+        btn_frame = ttk.Frame(self.overview_frame)
+        btn_frame.pack(pady=(5,10))
+        ttk.Button(btn_frame, text="🔄 Refresh Overview", style='Primary.TButton', command=self.refresh_overview).pack()
+        
+        # Initial load
+        self.refresh_overview()
+    
+    def refresh_overview(self):
+        """Update the overview tree with per-customer credit/debit totals."""
+        for row in self.overview_tree.get_children():
+            self.overview_tree.delete(row)
+        
+        cur = self.conn.cursor()
+        # Get all customers
+        cur.execute("SELECT id, name FROM customers ORDER BY name")
+        customers = cur.fetchall()
+        
+        total_credit_all = 0.0
+        total_debit_all = 0.0
+        total_net_all = 0.0
+        
+        for cid, cname in customers:
+            # Sum credits
+            cur.execute("SELECT COALESCE(SUM(amount),0) FROM transactions WHERE customer_id=? AND type='credit'", (cid,))
+            credit = cur.fetchone()[0]
+            # Sum debits
+            cur.execute("SELECT COALESCE(SUM(amount),0) FROM transactions WHERE customer_id=? AND type='debit'", (cid,))
+            debit = cur.fetchone()[0]
+            net = credit - debit
+            
+            total_credit_all += credit
+            total_debit_all += debit
+            total_net_all += net
+            
+            self.overview_tree.insert('', 'end', values=(
+                cname,
+                f"{credit:,.2f}",
+                f"{debit:,.2f}",
+                f"{net:,.2f}"
+            ))
+        
+        # Grand totals row with special styling
+        if customers:
+            self.overview_tree.insert('', 'end', values=(
+                "GRAND TOTALS",
+                f"{total_credit_all:,.2f}",
+                f"{total_debit_all:,.2f}",
+                f"{total_net_all:,.2f}"
+            ), tags=('totals',))
+            self.overview_tree.tag_configure('totals', background='#D5E8D4', font=('Segoe UI', 9, 'bold'))
     
     # ---------------- Reports Tab ----------------
     def build_report_tab(self):
@@ -478,7 +565,6 @@ class AccountingApp:
             messagebox.showerror("Error", "reportlab library is required for PDF generation.")
             return
         
-        # Fetch customer bank info
         cur = self.conn.cursor()
         cur.execute("SELECT bank_name, account_name, account_number FROM customers WHERE id=?", (cid,))
         bank_info = cur.fetchone()
