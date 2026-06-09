@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, simpledialog
 import sqlite3
 from datetime import datetime
 import os
@@ -7,6 +7,7 @@ import platform
 import subprocess
 
 DB_NAME = "accounting.db"
+ADMIN_PASSWORD = "admin"   # Change this to your desired password
 
 class AccountingApp:
     def __init__(self, root):
@@ -22,6 +23,14 @@ class AccountingApp:
         self.build_customers_tab()
         self.build_transactions_tab()
         self.build_report_tab()
+    
+    def check_admin(self):
+        """Ask for admin password before critical operations."""
+        pwd = simpledialog.askstring("Admin Password", "Enter admin password:", show="*")
+        if pwd != ADMIN_PASSWORD:
+            messagebox.showerror("Access Denied", "Incorrect password.")
+            return False
+        return True
     
     def create_tables(self):
         cur = self.conn.cursor()
@@ -69,10 +78,13 @@ class AccountingApp:
             self.cust_tree.insert('', 'end', values=(cid, name, phone if phone else '', email if email else ''))
     
     def add_customer(self):
-        messagebox.showinfo("Debug", "Add Customer clicked! The pop-up will now open.")
+        if not self.check_admin():
+            return
         self._customer_dialog("Add Customer")
     
     def edit_customer(self):
+        if not self.check_admin():
+            return
         selected = self.cust_tree.selection()
         if not selected:
             messagebox.showwarning("Warning", "Select a customer to edit.")
@@ -84,6 +96,8 @@ class AccountingApp:
         self._customer_dialog("Edit Customer", cid, name, phone, email)
     
     def delete_customer(self):
+        if not self.check_admin():
+            return
         selected = self.cust_tree.selection()
         if not selected:
             return
@@ -94,6 +108,8 @@ class AccountingApp:
             self.conn.commit()
             self.refresh_customer_list()
             self.refresh_transaction_list()
+            self.populate_customer_combo()
+            self.populate_report_combo()
     
     def _customer_dialog(self, title, cid=None, name='', phone='', email=''):
         dlg = tk.Toplevel(self.root)
@@ -101,7 +117,6 @@ class AccountingApp:
         dlg.geometry("350x250")
         dlg.resizable(False, False)
         
-        # Center the pop-up on the main window
         dlg.update_idletasks()
         main_x = self.root.winfo_rootx()
         main_y = self.root.winfo_rooty()
@@ -137,22 +152,22 @@ class AccountingApp:
             if not n:
                 messagebox.showerror("Error", "Name is required.", parent=dlg)
                 return
-            if cid:  # update
+            if cid:
                 self.conn.execute("UPDATE customers SET name=?, phone=?, email=? WHERE id=?",
                                   (n, phone_var.get(), email_var.get(), cid))
-            else:   # insert
+            else:
                 self.conn.execute("INSERT INTO customers (name, phone, email) VALUES (?,?,?)",
                                   (n, phone_var.get(), email_var.get()))
             self.conn.commit()
             dlg.destroy()
             self.refresh_customer_list()
+            self.populate_customer_combo()   # Update dropdowns instantly
+            self.populate_report_combo()
             self.refresh_transaction_list()
             messagebox.showinfo("Success", "Customer saved.", parent=self.root)
         
-        # A big, bold, unmistakable Save button
         btn = ttk.Button(frame, text="💾 SAVE CUSTOMER", command=save)
         btn.grid(row=3, column=0, columnspan=2, pady=20)
-        # Use a large font without relying on custom styles that might not exist
         style = ttk.Style()
         style.configure('Big.TButton', font=('TkDefaultFont', 12, 'bold'))
         btn.configure(style='Big.TButton')
@@ -191,16 +206,25 @@ class AccountingApp:
         
         ttk.Button(entry_frame, text="Record Transaction", command=self.record_transaction).grid(row=2, column=0, columnspan=5, pady=10)
         
-        cols = ('Date', 'Description', 'Credit', 'Debit', 'Balance')
+        # Ledger view with delete button
+        cols = ('ID', 'Date', 'Description', 'Credit', 'Debit', 'Balance')
         self.ledger_tree = ttk.Treeview(self.trans_frame, columns=cols, show='headings', height=15)
+        self.ledger_tree.heading('ID', text='ID')
         self.ledger_tree.heading('Date', text='Date')
         self.ledger_tree.heading('Description', text='Description')
         self.ledger_tree.heading('Credit', text='Credit')
         self.ledger_tree.heading('Debit', text='Debit')
         self.ledger_tree.heading('Balance', text='Balance')
-        for col in cols:
-            self.ledger_tree.column(col, width=120)
+        # Hide ID column (but keep it to retrieve the transaction id)
+        self.ledger_tree.column('ID', width=0, stretch=False)
+        self.ledger_tree.column('Date', width=100)
+        self.ledger_tree.column('Description', width=180)
+        self.ledger_tree.column('Credit', width=90)
+        self.ledger_tree.column('Debit', width=90)
+        self.ledger_tree.column('Balance', width=90)
         self.ledger_tree.pack(fill='both', expand=True, padx=5, pady=5)
+        
+        ttk.Button(self.trans_frame, text="Delete Selected Transaction", command=self.delete_transaction).pack(pady=5)
         
         self.populate_customer_combo()
     
@@ -212,6 +236,10 @@ class AccountingApp:
         if customers:
             self.cust_combo.current(0)
             self.refresh_transaction_list()
+        else:
+            # Clear ledger when no customers
+            for row in self.ledger_tree.get_children():
+                self.ledger_tree.delete(row)
     
     def get_selected_customer_id(self):
         sel = self.cust_combo.get()
@@ -226,15 +254,15 @@ class AccountingApp:
         if not cid:
             return
         cur = self.conn.cursor()
-        cur.execute("SELECT date, description, type, amount FROM transactions WHERE customer_id=? ORDER BY date, id", (cid,))
+        cur.execute("SELECT id, date, description, type, amount FROM transactions WHERE customer_id=? ORDER BY date, id", (cid,))
         rows = cur.fetchall()
         balance = 0.0
-        for date, desc, ttype, amount in rows:
+        for tid, date, desc, ttype, amount in rows:
             credit = amount if ttype == 'credit' else 0.0
             debit = amount if ttype == 'debit' else 0.0
             balance += credit - debit
             self.ledger_tree.insert('', 'end', values=(
-                date, desc or "", f"{credit:,.2f}" if credit else "",
+                tid, date, desc or "", f"{credit:,.2f}" if credit else "",
                 f"{debit:,.2f}" if debit else "", f"{balance:,.2f}"
             ))
     
@@ -267,6 +295,20 @@ class AccountingApp:
         self.date_var.set(datetime.today().strftime('%Y-%m-%d'))
         self.refresh_transaction_list()
         messagebox.showinfo("Success", "Transaction recorded.")
+    
+    def delete_transaction(self):
+        if not self.check_admin():
+            return
+        selected = self.ledger_tree.selection()
+        if not selected:
+            messagebox.showwarning("Warning", "Select a transaction to delete.")
+            return
+        tid = self.ledger_tree.item(selected[0])['values'][0]  # hidden ID column
+        if messagebox.askyesno("Confirm", "Delete this transaction? This cannot be undone."):
+            self.conn.execute("DELETE FROM transactions WHERE id=?", (tid,))
+            self.conn.commit()
+            self.refresh_transaction_list()
+            messagebox.showinfo("Success", "Transaction deleted.")
     
     # ---------------- Reports Tab ----------------
     def build_report_tab(self):
