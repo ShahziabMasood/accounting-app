@@ -7,7 +7,7 @@ import platform
 import subprocess
 
 DB_NAME = "accounting.db"
-ADMIN_PASSWORD = "admin"   # Change this to your desired password
+ADMIN_PASSWORD = "illusion"   # Change this to your desired password
 
 # -------------------- Color Palette --------------------
 BG_MAIN        = "#F0F4F8"
