@@ -8,7 +8,7 @@ import subprocess
 import shutil
 
 DB_NAME = "accounting.db"
-ADMIN_PASSWORD = "admin"   # Change this to your desired password
+ADMIN_PASSWORD = "admin"
 
 # -------------------- Color Palette --------------------
 BG_MAIN        = "#F0F4F8"
@@ -139,7 +139,6 @@ class AccountingApp:
     def backup_database(self):
         if not self.check_admin():
             return
-        # Choose where to save the backup
         file_path = filedialog.asksaveasfilename(
             defaultextension=".db",
             filetypes=[("Database files", "*.db"), ("All files", "*.*")],
@@ -149,20 +148,17 @@ class AccountingApp:
         if not file_path:
             return
         try:
-            # Close current connection to flush all changes
             self.conn.close()
             shutil.copy2(DB_NAME, file_path)
-            # Reopen connection
             self.conn = sqlite3.connect(DB_NAME)
             self.set_status(f"Backup saved to {file_path}")
         except Exception as e:
-            self.conn = sqlite3.connect(DB_NAME)  # ensure reconnected
+            self.conn = sqlite3.connect(DB_NAME)
             messagebox.showerror("Backup Error", str(e))
     
     def restore_database(self):
         if not self.check_admin():
             return
-        # Confirm restore action
         if not messagebox.askyesno("Confirm Restore",
                                    "This will replace ALL current data with the backup.\nAre you sure?"):
             return
@@ -173,13 +169,9 @@ class AccountingApp:
         if not file_path:
             return
         try:
-            # Close current connection
             self.conn.close()
-            # Overwrite current database with backup
             shutil.copy2(file_path, DB_NAME)
-            # Reconnect
             self.conn = sqlite3.connect(DB_NAME)
-            # Refresh all UI
             self.refresh_account_list()
             self.populate_account_combo()
             self.populate_report_combo()
@@ -187,7 +179,7 @@ class AccountingApp:
             self.refresh_overview()
             self.set_status("Database restored successfully.")
         except Exception as e:
-            self.conn = sqlite3.connect(DB_NAME)  # ensure reconnected
+            self.conn = sqlite3.connect(DB_NAME)
             messagebox.showerror("Restore Error", str(e))
     
     # ---------------- Accounts Tab ----------------
@@ -203,14 +195,12 @@ class AccountingApp:
             self.acc_tree.column(col, width=widths.get(col, 100), anchor='center')
         self.acc_tree.pack(fill='both', expand=True, padx=10, pady=10)
         
-        # Account buttons
         btn_frame = ttk.Frame(self.acc_frame)
         btn_frame.pack(pady=(0,10))
         ttk.Button(btn_frame, text="➕ Add Account", style='Primary.TButton', command=self.add_account).pack(side='left', padx=5)
         ttk.Button(btn_frame, text="✏️ Edit Account", style='Warn.TButton', command=self.edit_account).pack(side='left', padx=5)
         ttk.Button(btn_frame, text="🗑️ Delete Account", style='Danger.TButton', command=self.delete_account).pack(side='left', padx=5)
         
-        # Backup & Restore buttons
         bk_frame = ttk.Frame(self.acc_frame)
         bk_frame.pack(pady=(5,10))
         ttk.Button(bk_frame, text="💾 Backup Database", style='Success.TButton', command=self.backup_database).pack(side='left', padx=5)
@@ -307,7 +297,6 @@ class AccountingApp:
         
         bank_frame = ttk.Frame(frame)
         bank_frame.grid(row=2, column=0, columnspan=2, pady=10, sticky='ew')
-        # Bank-specific fields
         ttk.Label(bank_frame, text="Bank Name:").grid(row=0, column=0, sticky='w', pady=5)
         bank_var = tk.StringVar(value=bank_name)
         bank_combo = ttk.Combobox(bank_frame, textvariable=bank_var, width=27, font=('Segoe UI', 10))
@@ -364,7 +353,6 @@ class AccountingApp:
         self.trans_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.trans_frame, text="Transactions")
         
-        # Account selection and date filter
         top = ttk.Frame(self.trans_frame)
         top.pack(fill='x', padx=10, pady=10)
         ttk.Label(top, text="Account:").pack(side='left')
@@ -382,21 +370,26 @@ class AccountingApp:
         
         ttk.Label(top, text="From:").pack(side='left', padx=(20,2))
         self.from_var = tk.StringVar()
-        self.from_entry = ttk.Entry(top, textvariable=self.from_var, width=10, font=('Segoe UI', 10), state='disabled')
+        self.from_entry = tk.Entry(top, textvariable=self.from_var, width=10, font=('Segoe UI', 10), state='disabled')
         self.from_entry.pack(side='left')
+        self.bind_date_picker(self.from_entry, self.from_var)
+        
         ttk.Label(top, text="To:").pack(side='left', padx=2)
         self.to_var = tk.StringVar()
-        self.to_entry = ttk.Entry(top, textvariable=self.to_var, width=10, font=('Segoe UI', 10), state='disabled')
+        self.to_entry = tk.Entry(top, textvariable=self.to_var, width=10, font=('Segoe UI', 10), state='disabled')
         self.to_entry.pack(side='left')
+        self.bind_date_picker(self.to_entry, self.to_var)
+        
         ttk.Button(top, text="Apply", command=self.refresh_transaction_list).pack(side='left', padx=5)
         
-        # Transaction entry form
         entry_frame = ttk.Frame(self.trans_frame)
         entry_frame.pack(fill='x', padx=10, pady=5)
         
-        ttk.Label(entry_frame, text="Date (YYYY-MM-DD):").grid(row=0, column=0, sticky='w')
+        ttk.Label(entry_frame, text="Date:").grid(row=0, column=0, sticky='w')
         self.date_var = tk.StringVar(value=datetime.today().strftime('%Y-%m-%d'))
-        ttk.Entry(entry_frame, textvariable=self.date_var, width=12, font=('Segoe UI', 10)).grid(row=0, column=1, padx=5)
+        self.date_entry = tk.Entry(entry_frame, textvariable=self.date_var, width=12, font=('Segoe UI', 10))
+        self.date_entry.grid(row=0, column=1, padx=5)
+        self.bind_date_picker(self.date_entry, self.date_var)
         
         ttk.Label(entry_frame, text="Type:").grid(row=0, column=2, sticky='w', padx=(20,0))
         self.type_var = tk.StringVar(value='credit')
@@ -413,7 +406,6 @@ class AccountingApp:
         
         ttk.Button(entry_frame, text="📝 Record Transaction", style='Primary.TButton', command=self.record_transaction).grid(row=2, column=0, columnspan=5, pady=10)
         
-        # Ledger view
         cols = ('ID', 'Date', 'Description', 'Credit', 'Debit', 'Balance')
         self.ledger_tree = ttk.Treeview(self.trans_frame, columns=cols, show='headings', height=12)
         self.ledger_tree.heading('ID', text='ID')
@@ -433,6 +425,34 @@ class AccountingApp:
         ttk.Button(self.trans_frame, text="🗑️ Delete Selected Transaction", style='Danger.TButton', command=self.delete_transaction).pack(pady=5)
         
         self.populate_account_combo()
+    
+    def bind_date_picker(self, entry_widget, string_var):
+        """Attach a DateEntry popup when clicking on the entry field."""
+        from tkcalendar import DateEntry
+        def show_calendar(event):
+            # We'll create a small toplevel with a DateEntry widget
+            top = tk.Toplevel(entry_widget)
+            top.title("Select Date")
+            top.geometry("250x250")
+            top.resizable(False, False)
+            top.grab_set()
+            # Position near the entry
+            x = entry_widget.winfo_rootx()
+            y = entry_widget.winfo_rooty() + entry_widget.winfo_height()
+            top.geometry(f"+{x}+{y}")
+            
+            cal = DateEntry(top, width=12, background='darkblue', foreground='white',
+                            borderwidth=2, date_pattern='yyyy-mm-dd')
+            cal.pack(padx=10, pady=10)
+            cal.set_date(string_var.get() or datetime.today().strftime('%Y-%m-%d'))
+            
+            def set_date():
+                string_var.set(cal.get_date().strftime('%Y-%m-%d'))
+                top.destroy()
+            ttk.Button(top, text="OK", command=set_date).pack(pady=5)
+            # Also allow closing with Enter key
+            cal.bind("<Return>", lambda e: set_date())
+        entry_widget.bind("<Button-1>", show_calendar)
     
     def on_period_change(self):
         period = self.period_var.get()
@@ -641,12 +661,16 @@ class AccountingApp:
         
         ttk.Label(date_frame, text="From:").grid(row=0, column=2, padx=(20,2))
         self.r_from_var = tk.StringVar()
-        self.r_from_entry = ttk.Entry(date_frame, textvariable=self.r_from_var, width=10, font=('Segoe UI', 10), state='disabled')
+        self.r_from_entry = tk.Entry(date_frame, textvariable=self.r_from_var, width=10, font=('Segoe UI', 10), state='disabled')
         self.r_from_entry.grid(row=0, column=3)
+        self.bind_date_picker(self.r_from_entry, self.r_from_var)
+        
         ttk.Label(date_frame, text="To:").grid(row=0, column=4, padx=2)
         self.r_to_var = tk.StringVar()
-        self.r_to_entry = ttk.Entry(date_frame, textvariable=self.r_to_var, width=10, font=('Segoe UI', 10), state='disabled')
+        self.r_to_entry = tk.Entry(date_frame, textvariable=self.r_to_var, width=10, font=('Segoe UI', 10), state='disabled')
         self.r_to_entry.grid(row=0, column=5)
+        self.bind_date_picker(self.r_to_entry, self.r_to_var)
+        
         ttk.Label(date_frame, text="(leave empty for all dates)").grid(row=0, column=6, padx=10)
         
         btn_frame = ttk.Frame(self.report_frame)
