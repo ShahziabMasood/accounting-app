@@ -422,21 +422,22 @@ class AccountingApp:
         self.ledger_tree.column('Balance', width=100, anchor='center')
         self.ledger_tree.pack(fill='both', expand=True, padx=10, pady=5)
         
-        ttk.Button(self.trans_frame, text="🗑️ Delete Selected Transaction", style='Danger.TButton', command=self.delete_transaction).pack(pady=5)
+        # Edit and Delete buttons
+        btn_frame = ttk.Frame(self.trans_frame)
+        btn_frame.pack(pady=5)
+        ttk.Button(btn_frame, text="✏️ Edit Selected Transaction", style='Warn.TButton', command=self.edit_transaction).pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="🗑️ Delete Selected Transaction", style='Danger.TButton', command=self.delete_transaction).pack(side='left', padx=5)
         
         self.populate_account_combo()
     
     def bind_date_picker(self, entry_widget, string_var):
-        """Attach a DateEntry popup when clicking on the entry field."""
         from tkcalendar import DateEntry
         def show_calendar(event):
-            # We'll create a small toplevel with a DateEntry widget
             top = tk.Toplevel(entry_widget)
             top.title("Select Date")
             top.geometry("250x250")
             top.resizable(False, False)
             top.grab_set()
-            # Position near the entry
             x = entry_widget.winfo_rootx()
             y = entry_widget.winfo_rooty() + entry_widget.winfo_height()
             top.geometry(f"+{x}+{y}")
@@ -450,7 +451,6 @@ class AccountingApp:
                 string_var.set(cal.get_date().strftime('%Y-%m-%d'))
                 top.destroy()
             ttk.Button(top, text="OK", command=set_date).pack(pady=5)
-            # Also allow closing with Enter key
             cal.bind("<Return>", lambda e: set_date())
         entry_widget.bind("<Button-1>", show_calendar)
     
@@ -563,6 +563,71 @@ class AccountingApp:
         self.refresh_transaction_list()
         self.refresh_overview()
         self.set_status("Transaction recorded.")
+    
+    def edit_transaction(self):
+        if not self.check_admin():
+            return
+        selected = self.ledger_tree.selection()
+        if not selected:
+            messagebox.showwarning("Warning", "Select a transaction to edit.")
+            return
+        tid = self.ledger_tree.item(selected[0])['values'][0]
+        cur = self.conn.cursor()
+        cur.execute("SELECT date, type, amount, description FROM transactions WHERE id=?", (tid,))
+        row = cur.fetchone()
+        if not row:
+            return
+        date, ttype, amount, desc = row
+        
+        # Pre-fill the entry form fields
+        self.date_var.set(date)
+        self.type_var.set(ttype)
+        self.amount_var.set(str(amount))
+        self.desc_var.set(desc if desc else '')
+        
+        # Change the Record button to Update
+        def update():
+            new_date = self.date_var.get().strip()
+            try:
+                datetime.strptime(new_date, '%Y-%m-%d')
+            except ValueError:
+                messagebox.showerror("Error", "Date must be YYYY-MM-DD.")
+                return
+            new_type = self.type_var.get()
+            try:
+                new_amount = float(self.amount_var.get())
+                if new_amount <= 0:
+                    raise ValueError
+            except:
+                messagebox.showerror("Error", "Amount must be a positive number.")
+                return
+            new_desc = self.desc_var.get().strip()
+            
+            self.conn.execute("UPDATE transactions SET date=?, type=?, amount=?, description=? WHERE id=?",
+                              (new_date, new_type, new_amount, new_desc, tid))
+            self.conn.commit()
+            self.amount_var.set('')
+            self.desc_var.set('')
+            self.date_var.set(datetime.today().strftime('%Y-%m-%d'))
+            # Restore the Record button
+            ttk.Button(entry_frame, text="📝 Record Transaction", style='Primary.TButton', command=self.record_transaction).grid(row=2, column=0, columnspan=5, pady=10)
+            self.refresh_transaction_list()
+            self.refresh_overview()
+            self.set_status("Transaction updated.")
+        
+        # Replace the button temporarily
+        entry_frame = self.trans_frame.winfo_children()[1]  # second child is the entry frame
+        update_btn = ttk.Button(entry_frame, text="🔄 Update Transaction", style='Success.TButton', command=update)
+        update_btn.grid(row=2, column=0, columnspan=5, pady=10)
+        # Optionally, cancel button
+        def cancel_edit():
+            self.amount_var.set('')
+            self.desc_var.set('')
+            self.date_var.set(datetime.today().strftime('%Y-%m-%d'))
+            ttk.Button(entry_frame, text="📝 Record Transaction", style='Primary.TButton', command=self.record_transaction).grid(row=2, column=0, columnspan=5, pady=10)
+            self.set_status("Edit cancelled.")
+        cancel_btn = ttk.Button(entry_frame, text="Cancel", command=cancel_edit)
+        cancel_btn.grid(row=3, column=0, columnspan=5, pady=5)
     
     def delete_transaction(self):
         if not self.check_admin():
