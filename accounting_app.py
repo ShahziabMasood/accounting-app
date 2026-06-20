@@ -35,6 +35,8 @@ THEMES = {
         "TAB_BG": "#FFFFFF",
         "TAB_ACTIVE_BG": "#1ABC9C",
         "TAB_ACTIVE_FG": "#FFFFFF",
+        "TAB_HOVER_BG": "#E0F2F1",   # new
+        "TAB_HOVER_FG": "#2C3E50",   # new
         "POPUP_BG": "#F0F0F0"
     },
     "Dark": {
@@ -60,6 +62,8 @@ THEMES = {
         "TAB_BG": "#2D2D2D",
         "TAB_ACTIVE_BG": "#007ACC",
         "TAB_ACTIVE_FG": "#FFFFFF",
+        "TAB_HOVER_BG": "#3A3A3A",   # new
+        "TAB_HOVER_FG": "#FFFFFF",   # new
         "POPUP_BG": "#1E1E1E"
     },
     "Blue": {
@@ -85,6 +89,8 @@ THEMES = {
         "TAB_BG": "#FFFFFF",
         "TAB_ACTIVE_BG": "#1ABC9C",
         "TAB_ACTIVE_FG": "#FFFFFF",
+        "TAB_HOVER_BG": "#D6EAF8",   # new
+        "TAB_HOVER_FG": "#2C3E50",   # new
         "POPUP_BG": "#F0F4F8"
     }
 }
@@ -99,12 +105,10 @@ class AccountingApp:
         self.create_tables()
         self.migrate_tables()
 
-        # Current theme
         self.current_theme = tk.StringVar(value="Blue")
         try:
             self.apply_theme()
         except Exception:
-            # fallback if theme breaks – use hardcoded Blue values
             self.theme = THEMES["Blue"]
             self.root.configure(bg=self.theme["BG_MAIN"])
             self.style = ttk.Style()
@@ -125,9 +129,12 @@ class AccountingApp:
         style.configure('TNotebook', background=t["BG_MAIN"], borderwidth=0)
         style.configure('TNotebook.Tab', background=t["TAB_BG"], foreground=t["TEXT_DARK"], padding=[15, 5],
                         font=('Segoe UI', 10, 'bold'))
+        # FIXED: use the new TAB_HOVER_BG / TAB_HOVER_FG for the hover state
         style.map('TNotebook.Tab',
-                  background=[('selected', t["TAB_ACTIVE_BG"]), ('active', '#D5E8D4')],
-                  foreground=[('selected', t["TAB_ACTIVE_FG"])])
+                  background=[('selected', t["TAB_ACTIVE_BG"]),
+                              ('active', t["TAB_HOVER_BG"])],
+                  foreground=[('selected', t["TAB_ACTIVE_FG"]),
+                              ('active', t["TAB_HOVER_FG"])])
 
         style.configure('Primary.TButton', background=t["BUTTON_PRIMARY"], foreground=t["TEXT_LIGHT"],
                         borderwidth=0, focuscolor='none', font=('Segoe UI', 10, 'bold'))
@@ -170,8 +177,11 @@ class AccountingApp:
         b = max(0, int(b * (1 - factor)))
         return f'#{r:02x}{g:02x}{b:02x}'
 
+    # --- rest of the class is unchanged from the previous working version ---
+    # (build_ui, backup/restore, accounts, transactions, overview, reports, etc.)
+    # I'll include the full class below for completeness.
+
     def build_ui(self):
-        # Theme selector at the very top
         theme_frame = ttk.Frame(self.root)
         theme_frame.pack(fill='x', padx=10, pady=5)
         ttk.Label(theme_frame, text="Theme:").pack(side='left', padx=(0,5))
@@ -240,7 +250,7 @@ class AccountingApp:
                 cur.execute("ALTER TABLE accounts ADD COLUMN type TEXT DEFAULT 'Bank'")
                 self.conn.commit()
         except Exception:
-            pass  # ignore migration errors if tables don't exist yet
+            pass
 
     def on_tab_changed(self, event):
         selected_tab = self.notebook.tab(self.notebook.select(), "text")
@@ -549,7 +559,6 @@ class AccountingApp:
         try:
             from tkcalendar import DateEntry
         except ImportError:
-            # If tkcalendar is missing, date picker won't work, but app still opens
             return
         def show_calendar(event):
             top = tk.Toplevel(entry_widget)
